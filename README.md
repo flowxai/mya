@@ -54,11 +54,15 @@ cd mya
 git clone https://github.com/flowxai/mya.git mya
 cd mya
 
-bun install
+./scripts/bootstrap.sh
 bun run build
+```
 
-# 如果要用 mya connect
-npm --prefix ./connect install
+如果你更喜欢走包脚本，也可以：
+
+```bash
+bun run setup
+bun run build
 ```
 
 ## 运行
@@ -125,12 +129,12 @@ src/
 
 ```bash
 # 核心 CLI
+bun run setup
 bun run build
 bun run build:dev
 bun run build:dev:full
 
 # bundled connect
-npm --prefix ./connect install
 npm --prefix ./connect run check
 npm --prefix ./connect test
 ```
