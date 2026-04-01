@@ -9,6 +9,7 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { getProjectRoot } from '../bootstrap/state.js'
+import { getProjectConfigDirCandidates } from './appNamespace.js'
 import { logForDebugging } from './debug.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { isFsInaccessible } from './errors.js'
@@ -250,18 +251,20 @@ export function getProjectDirsUpToHome(
       break
     }
 
-    const claudeSubdir = join(current, '.claude', subdir)
-    // Filter to existing dirs. This is a perf filter (avoids spawning
-    // ripgrep on non-existent dirs downstream) and the worktree fallback
-    // in loadMarkdownFilesForSubdir relies on it. statSync + explicit error
-    // handling instead of existsSync — re-throws unexpected errors rather
-    // than silently swallowing them. Downstream loadMarkdownFiles handles
-    // the TOCTOU window (dir disappearing before read) gracefully.
-    try {
-      statSync(claudeSubdir)
-      dirs.push(claudeSubdir)
-    } catch (e: unknown) {
-      if (!isFsInaccessible(e)) throw e
+    for (const configDir of getProjectConfigDirCandidates(current)) {
+      const configSubdir = join(configDir, subdir)
+      // Filter to existing dirs. This is a perf filter (avoids spawning
+      // ripgrep on non-existent dirs downstream) and the worktree fallback
+      // in loadMarkdownFilesForSubdir relies on it. statSync + explicit error
+      // handling instead of existsSync — re-throws unexpected errors rather
+      // than silently swallowing them. Downstream loadMarkdownFiles handles
+      // the TOCTOU window (dir disappearing before read) gracefully.
+      try {
+        statSync(configSubdir)
+        dirs.push(configSubdir)
+      } catch (e: unknown) {
+        if (!isFsInaccessible(e)) throw e
+      }
     }
 
     // Stop after processing the git root directory - this prevents commands from parent
@@ -301,7 +304,9 @@ export const loadMarkdownFilesForSubdir = memoize(
   ): Promise<MarkdownFile[]> {
     const searchStartTime = Date.now()
     const userDir = join(getClaudeConfigHomeDir(), subdir)
-    const managedDir = join(getManagedFilePath(), '.claude', subdir)
+    const managedDirs = getProjectConfigDirCandidates(getManagedFilePath()).map(
+      dir => join(dir, subdir),
+    )
     const projectDirs = getProjectDirsUpToHome(subdir, cwd)
 
     // For git worktrees where the worktree does NOT have .claude/<subdir> checked
@@ -320,29 +325,35 @@ export const loadMarkdownFilesForSubdir = memoize(
     const gitRoot = findGitRoot(cwd)
     const canonicalRoot = findCanonicalGitRoot(cwd)
     if (gitRoot && canonicalRoot && canonicalRoot !== gitRoot) {
-      const worktreeSubdir = normalizePathForComparison(
-        join(gitRoot, '.claude', subdir),
+      const worktreeSubdirs = getProjectConfigDirCandidates(gitRoot).map(dir =>
+        normalizePathForComparison(join(dir, subdir)),
       )
       const worktreeHasSubdir = projectDirs.some(
-        dir => normalizePathForComparison(dir) === worktreeSubdir,
+        dir => worktreeSubdirs.includes(normalizePathForComparison(dir)),
       )
       if (!worktreeHasSubdir) {
-        const mainClaudeSubdir = join(canonicalRoot, '.claude', subdir)
-        if (!projectDirs.includes(mainClaudeSubdir)) {
-          projectDirs.push(mainClaudeSubdir)
+        for (const mainConfigDir of getProjectConfigDirCandidates(canonicalRoot)) {
+          const mainConfigSubdir = join(mainConfigDir, subdir)
+          if (!projectDirs.includes(mainConfigSubdir)) {
+            projectDirs.push(mainConfigSubdir)
+          }
         }
       }
     }
 
     const [managedFiles, userFiles, projectFilesNested] = await Promise.all([
       // Always load managed (policy settings)
-      loadMarkdownFiles(managedDir).then(_ =>
-        _.map(file => ({
-          ...file,
-          baseDir: managedDir,
-          source: 'policySettings' as const,
-        })),
-      ),
+      Promise.all(
+        managedDirs.map(managedDir =>
+          loadMarkdownFiles(managedDir).then(_ =>
+            _.map(file => ({
+              ...file,
+              baseDir: managedDir,
+              source: 'policySettings' as const,
+            })),
+          ),
+        ),
+      ).then(_ => _.flat()),
       // Conditionally load user files
       isSettingSourceEnabled('userSettings') &&
       !(subdir === 'agents' && isRestrictedToPluginOnly('agents'))

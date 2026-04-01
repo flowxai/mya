@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI_PATH="${SCRIPT_DIR}/../cli"
+CONNECT_ENTRY="${SCRIPT_DIR}/../connect/bin/mya-connect.js"
+CONNECT_NODE_MODULES="${SCRIPT_DIR}/../connect/node_modules"
+
+if [[ "${1:-}" == "connect" ]]; then
+  shift
+
+  if [[ ! -f "${CONNECT_ENTRY}" ]]; then
+    echo "[mya connect] bundled connect runtime is missing at ${CONNECT_ENTRY}" >&2
+    exit 1
+  fi
+
+  if [[ ! -d "${CONNECT_NODE_MODULES}" ]]; then
+    echo "[mya connect] bundled connector dependencies are missing." >&2
+    echo "[mya connect] run 'npm --prefix \"${SCRIPT_DIR}/../connect\" install' first." >&2
+    exit 1
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[mya connect] Node.js >= 22 is required to run channel connectors." >&2
+    exit 1
+  fi
+
+  export MYA_CONNECT_MAIN_COMMAND="${MYA_CONNECT_MAIN_COMMAND:-${CLI_PATH}}"
+  exec node "${CONNECT_ENTRY}" "$@"
+fi
+
+exec "${CLI_PATH}" "$@"

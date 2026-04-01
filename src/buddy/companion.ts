@@ -128,6 +128,8 @@ export function getCompanion(): Companion | undefined {
   const stored = getGlobalConfig().companion
   if (!stored) return undefined
   const { bones } = roll(companionUserId())
+  const species = stored.speciesOverride ?? bones.species
+  const rarity = stored.rarityOverride ?? bones.rarity
   // bones last so stale bones fields in old-format configs get overridden
-  return { ...stored, ...bones }
+  return { ...stored, ...bones, species, rarity }
 }

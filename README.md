@@ -1,236 +1,136 @@
-# free-code
+# mya
 
-**The free build of Claude Code.**
+`mya` 是一个终端里的 AI 编码助手，基于这份整理后的 Claude Code 分叉构建，并内置 `mya connect` 多渠道桥接能力。
 
-All telemetry stripped. All injected security-prompt guardrails removed. All experimental features unlocked. One binary, zero callbacks home.
+对外只保留一个主入口：
+
+- `mya`
+- `mya connect wechat ...`
+- `mya connect feishu ...`
+
+内部仍然分成两层：
+
+- 核心 CLI：仓库根目录
+- 渠道桥接：[`connect/`](./connect)
+
+## 这份仓库提供什么
+
+- 交互式终端编码助手
+- 读写文件、运行命令、代码库导航、任务流处理
+- 私有命名空间 `~/.my_agent` / `.my_agent`
+- 微信扫码桥接
+- 飞书自建应用桥接
+- 图片/文件收发到渠道会话
+
+## 快速安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/paoloanzn/free-code/main/install.sh | bash
+git clone https://github.com/flowxai/mya.git mya
+cd mya
+./install.sh
 ```
 
-> Checks your system, installs Bun if needed, clones, builds with all features enabled, and puts `free-code` on your PATH. Then just `export ANTHROPIC_API_KEY="sk-ant-..."` and run `free-code`.
+安装脚本会：
 
-<p align="center">
-  <img src="assets/screenshot.png" alt="free-code screenshot" width="800" />
-</p>
+- 检查并安装 Bun
+- 拉取仓库到 `~/mya`
+- 安装核心依赖
+- 如果本机有 Node.js 22+，顺带安装 `mya connect` 的依赖
+- 构建核心二进制
+- 把 `mya` 链接到 `~/.local/bin/mya`
 
----
+### 依赖要求
 
-## What is this
+- Bun >= 1.3.11
+- macOS 或 Linux
+- Node.js >= 22
+  只在你要使用 `mya connect` 的微信/飞书桥接时必需
 
-This is a clean, buildable fork of Anthropic's [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI -- the terminal-native AI coding agent. The upstream source became publicly available on March 31, 2026 through a source map exposure in the npm distribution.
+如果你后面把这个仓库单独发布到自己的地址，也可以继续保留 `install.sh` 作为远程安装入口；只需要把脚本里的默认仓库 URL 改成你自己的 `mya` 仓库。
 
-This fork applies three categories of changes on top of that snapshot:
-
-### 1. Telemetry removed
-
-The upstream binary phones home through OpenTelemetry/gRPC, GrowthBook analytics, Sentry error reporting, and custom event logging. In this build:
-
-- All outbound telemetry endpoints are dead-code-eliminated or stubbed
-- GrowthBook feature flag evaluation still works locally (needed for runtime feature gates) but does not report back
-- No crash reports, no usage analytics, no session fingerprinting
-
-### 2. Security-prompt guardrails removed
-
-Anthropic injects system-level instructions into every conversation that constrain Claude's behavior beyond what the model itself enforces. These include:
-
-- Hardcoded refusal patterns for certain categories of prompts
-- Injected "cyber risk" instruction blocks
-- Managed-settings security overlays pushed from Anthropic's servers
-
-This build strips those injections. The model's own safety training still applies -- this just removes the extra layer of prompt-level restrictions that the CLI wraps around it.
-
-### 3. Experimental features enabled
-
-Claude Code ships with dozens of feature flags gated behind `bun:bundle` compile-time switches. Most are disabled in the public npm release. This build unlocks all 45+ flags that compile cleanly, including:
-
-| Feature | What it does |
-|---|---|
-| `ULTRAPLAN` | Remote multi-agent planning on Claude Code web (Opus-class) |
-| `ULTRATHINK` | Deep thinking mode -- type "ultrathink" to boost reasoning effort |
-| `VOICE_MODE` | Push-to-talk voice input and dictation |
-| `AGENT_TRIGGERS` | Local cron/trigger tools for background automation |
-| `BRIDGE_MODE` | IDE remote-control bridge (VS Code, JetBrains) |
-| `TOKEN_BUDGET` | Token budget tracking and usage warnings |
-| `BUILTIN_EXPLORE_PLAN_AGENTS` | Built-in explore/plan agent presets |
-| `VERIFICATION_AGENT` | Verification agent for task validation |
-| `BASH_CLASSIFIER` | Classifier-assisted bash permission decisions |
-| `EXTRACT_MEMORIES` | Post-query automatic memory extraction |
-| `HISTORY_PICKER` | Interactive prompt history picker |
-| `MESSAGE_ACTIONS` | Message action entrypoints in the UI |
-| `QUICK_SEARCH` | Prompt quick-search |
-| `SHOT_STATS` | Shot-distribution stats |
-| `COMPACTION_REMINDERS` | Smart reminders around context compaction |
-| `CACHED_MICROCOMPACT` | Cached microcompact state through query flows |
-
-See [FEATURES.md](FEATURES.md) for the full audit of all 88 flags and their status.
-
----
-
-## Quick install
+## 手动构建
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/paoloanzn/free-code/main/install.sh | bash
-```
+git clone https://github.com/flowxai/mya.git mya
+cd mya
 
-This will check your system, install Bun if needed, clone the repo, build the binary with all experimental features enabled, and symlink it as `free-code` on your PATH.
-
-After install, just run:
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-free-code
-```
-
----
-
-## Requirements
-
-- [Bun](https://bun.sh) >= 1.3.11
-- macOS or Linux (Windows via WSL)
-- An Anthropic API key (set `ANTHROPIC_API_KEY` in your environment)
-
-```bash
-# Install Bun if you don't have it
-curl -fsSL https://bun.sh/install | bash
-```
-
----
-
-## Build
-
-```bash
-# Clone the repo
-git clone https://github.com/paoloanzn/claude-code.git
-cd claude-code
-
-# Install dependencies
 bun install
-
-# Standard build -- produces ./cli
 bun run build
 
-# Dev build -- dev version stamp, experimental GrowthBook key
-bun run build:dev
-
-# Dev build with ALL experimental features enabled -- produces ./cli-dev
-bun run build:dev:full
-
-# Compiled build (alternative output path) -- produces ./dist/cli
-bun run compile
+# 如果要用 mya connect
+npm --prefix ./connect install
 ```
 
-### Build variants
-
-| Command | Output | Features | Notes |
-|---|---|---|---|
-| `bun run build` | `./cli` | `VOICE_MODE` only | Production-like binary |
-| `bun run build:dev` | `./cli-dev` | `VOICE_MODE` only | Dev version stamp |
-| `bun run build:dev:full` | `./cli-dev` | All 45+ experimental flags | The full unlock build |
-| `bun run compile` | `./dist/cli` | `VOICE_MODE` only | Alternative output directory |
-
-### Individual feature flags
-
-You can enable specific flags without the full bundle:
+## 运行
 
 ```bash
-# Enable just ultraplan and ultrathink
-bun run ./scripts/build.ts --feature=ULTRAPLAN --feature=ULTRATHINK
-
-# Enable a specific flag on top of the dev build
-bun run ./scripts/build.ts --dev --feature=BRIDGE_MODE
-```
-
----
-
-## Run
-
-```bash
-# Run the built binary directly
-./cli
-
-# Or the dev binary
-./cli-dev
-
-# Or run from source without compiling (slower startup)
-bun run dev
-
-# Set your API key
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-# Or use Claude.ai OAuth
-./cli /login
+# 交互模式
+./bin/mya
+
+# 单次提问
+./bin/mya -p "hello"
+
+# 渠道桥接
+./bin/mya connect wechat login
+./bin/mya connect wechat start
+./bin/mya connect feishu check
+./bin/mya connect feishu start
 ```
 
-### Quick test
+安装完成后，直接用系统命令：
 
 ```bash
-# One-shot mode
-./cli -p "what files are in this directory?"
-
-# Interactive REPL (default)
-./cli
-
-# With specific model
-./cli --model claude-sonnet-4-6-20250514
+mya
+mya connect wechat start
+mya connect feishu start
 ```
 
----
+## `mya connect`
 
-## Project structure
+`mya connect` 是内置在仓库里的渠道桥接层，不是第二个单独产品。
 
-```
+当前支持：
+
+- `wechat`
+- `feishu`
+
+详细配置和命令见：
+
+- [`connect/README.md`](./connect/README.md)
+- [`connect/Usage.md`](./connect/Usage.md)
+
+## 项目结构
+
+```text
+bin/
+  mya                  # 统一入口；普通命令转到 ./cli，connect 子命令转到 ./connect
+
+connect/
+  src/                 # 微信/飞书渠道桥接
+  tests/               # connect 层测试
+
 scripts/
-  build.ts              # Build script with feature flag system
+  build.ts             # Bun 构建脚本
 
 src/
-  entrypoints/cli.tsx   # CLI entrypoint
-  commands.ts           # Command registry (slash commands)
-  tools.ts              # Tool registry (agent tools)
-  QueryEngine.ts        # LLM query engine
-  screens/REPL.tsx      # Main interactive UI
-
-  commands/             # /slash command implementations
-  tools/                # Agent tool implementations (Bash, Read, Edit, etc.)
-  components/           # Ink/React terminal UI components
-  hooks/                # React hooks
-  services/             # API client, MCP, OAuth, analytics
-  state/                # App state store
-  utils/                # Utilities
-  skills/               # Skill system
-  plugins/              # Plugin system
-  bridge/               # IDE bridge
-  voice/                # Voice input
-  tasks/                # Background task management
+  entrypoints/cli.tsx  # 核心 CLI 入口
+  commands.ts          # Slash commands
+  tools.ts             # 工具注册
+  screens/REPL.tsx     # 主交互界面
 ```
 
----
+## 开发命令
 
-## Tech stack
+```bash
+# 核心 CLI
+bun run build
+bun run build:dev
+bun run build:dev:full
 
-| | |
-|---|---|
-| Runtime | [Bun](https://bun.sh) |
-| Language | TypeScript |
-| Terminal UI | React + [Ink](https://github.com/vadimdemedes/ink) |
-| CLI parsing | [Commander.js](https://github.com/tj/commander.js) |
-| Schema validation | Zod v4 |
-| Code search | ripgrep (bundled) |
-| Protocols | MCP, LSP |
-| API | Anthropic Messages API |
-
----
-
-## IPFS Mirror
-
-A full copy of this repository is permanently pinned on IPFS via Filecoin:
-
-- **CID:** `bafybeiegvef3dt24n2znnnmzcud2vxat7y7rl5ikz7y7yoglxappim54bm`
-- **Gateway:** https://w3s.link/ipfs/bafybeiegvef3dt24n2znnnmzcud2vxat7y7rl5ikz7y7yoglxappim54bm
-
-If this repo gets taken down, the code lives on.
-
----
-
-## License
-
-The original Claude Code source is the property of Anthropic. This fork exists because the source was publicly exposed through their npm distribution. Use at your own discretion.
+# bundled connect
+npm --prefix ./connect install
+npm --prefix ./connect run check
+npm --prefix ./connect test
+```

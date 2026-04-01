@@ -16,6 +16,12 @@ import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
 import { checkStatsigFeatureGate_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import type { AnyObject, Tool, ToolPermissionContext } from '../../Tool.js'
 import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
+import {
+  getLegacyProjectConfigDir,
+  getProjectConfigDir,
+  LEGACY_CONFIG_DIR_NAME,
+  PRIMARY_CONFIG_DIR_NAME,
+} from '../appNamespace.js'
 import { getCwd } from '../cwd.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
 import {
@@ -55,6 +61,7 @@ declare const MACRO: { VERSION: string }
  * These files can be used for code execution or data exfiltration.
  */
 export const DANGEROUS_FILES = [
+  '.my_agent.json',
   '.gitconfig',
   '.gitmodules',
   '.bashrc',
@@ -75,6 +82,7 @@ export const DANGEROUS_DIRECTORIES = [
   '.git',
   '.vscode',
   '.idea',
+  PRIMARY_CONFIG_DIR_NAME,
   '.claude',
 ] as const
 
@@ -106,12 +114,20 @@ export function getClaudeSkillScope(
 
   const bases = [
     {
-      dir: expandPath(join(getOriginalCwd(), '.claude', 'skills')),
-      prefix: '/.claude/skills/',
+      dir: expandPath(join(getProjectConfigDir(getOriginalCwd()), 'skills')),
+      prefix: `/${PRIMARY_CONFIG_DIR_NAME}/skills/`,
     },
     {
-      dir: expandPath(join(homedir(), '.claude', 'skills')),
-      prefix: '~/.claude/skills/',
+      dir: expandPath(join(getClaudeConfigHomeDir(), 'skills')),
+      prefix: `~/${PRIMARY_CONFIG_DIR_NAME}/skills/`,
+    },
+    {
+      dir: expandPath(join(getLegacyProjectConfigDir(getOriginalCwd()), 'skills')),
+      prefix: `/${LEGACY_CONFIG_DIR_NAME}/skills/`,
+    },
+    {
+      dir: expandPath(join(homedir(), LEGACY_CONFIG_DIR_NAME, 'skills')),
+      prefix: `~/${LEGACY_CONFIG_DIR_NAME}/skills/`,
     },
   ]
 
@@ -208,6 +224,8 @@ export function isClaudeSettingsPath(filePath: string): boolean {
 
   // Use platform separator so endsWith checks work on both Unix (/) and Windows (\)
   if (
+    normalizedPath.endsWith(`${sep}.my_agent${sep}settings.json`) ||
+    normalizedPath.endsWith(`${sep}.my_agent${sep}settings.local.json`) ||
     normalizedPath.endsWith(`${sep}.claude${sep}settings.json`) ||
     normalizedPath.endsWith(`${sep}.claude${sep}settings.local.json`)
   ) {
@@ -230,14 +248,16 @@ function isClaudeConfigFilePath(filePath: string): boolean {
   // Check if file is within .claude/commands or .claude/agents directories
   // using proper path segment validation (not string matching with includes())
   // pathInWorkingPath now handles case-insensitive comparison to prevent bypasses
-  const commandsDir = join(getOriginalCwd(), '.claude', 'commands')
-  const agentsDir = join(getOriginalCwd(), '.claude', 'agents')
-  const skillsDir = join(getOriginalCwd(), '.claude', 'skills')
+  const configDirs = [
+    getProjectConfigDir(getOriginalCwd()),
+    getLegacyProjectConfigDir(getOriginalCwd()),
+  ]
 
-  return (
-    pathInWorkingPath(filePath, commandsDir) ||
-    pathInWorkingPath(filePath, agentsDir) ||
-    pathInWorkingPath(filePath, skillsDir)
+  return configDirs.some(
+    configDir =>
+      pathInWorkingPath(filePath, join(configDir, 'commands')) ||
+      pathInWorkingPath(filePath, join(configDir, 'agents')) ||
+      pathInWorkingPath(filePath, join(configDir, 'skills')),
   )
 }
 

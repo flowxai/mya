@@ -5,6 +5,7 @@ import {
   ensureMemoryDirExists,
 } from '../../memdir/memdir.js'
 import { getMemoryBaseDir } from '../../memdir/paths.js'
+import { getPrimaryProjectConfigPath } from '../../utils/appNamespace.js'
 import { getCwd } from '../../utils/cwd.js'
 import { findCanonicalGitRoot } from '../../utils/git.js'
 import { sanitizePath } from '../../utils/path.js'
@@ -40,7 +41,11 @@ function getLocalAgentMemoryDir(dirName: string): string {
       ) + sep
     )
   }
-  return join(getCwd(), '.claude', 'agent-memory-local', dirName) + sep
+  return getPrimaryProjectConfigPath(
+    getCwd(),
+    'agent-memory-local',
+    dirName,
+  ) + sep
 }
 
 /**
@@ -56,7 +61,7 @@ export function getAgentMemoryDir(
   const dirName = sanitizeAgentTypeForPath(agentType)
   switch (scope) {
     case 'project':
-      return join(getCwd(), '.claude', 'agent-memory', dirName) + sep
+      return getPrimaryProjectConfigPath(getCwd(), 'agent-memory', dirName) + sep
     case 'local':
       return getLocalAgentMemoryDir(dirName)
     case 'user':
@@ -77,7 +82,9 @@ export function isAgentMemoryPath(absolutePath: string): boolean {
 
   // Project scope: always cwd-based (not redirected)
   if (
-    normalizedPath.startsWith(join(getCwd(), '.claude', 'agent-memory') + sep)
+    normalizedPath.startsWith(
+      getPrimaryProjectConfigPath(getCwd(), 'agent-memory') + sep,
+    )
   ) {
     return true
   }
@@ -94,7 +101,7 @@ export function isAgentMemoryPath(absolutePath: string): boolean {
     }
   } else if (
     normalizedPath.startsWith(
-      join(getCwd(), '.claude', 'agent-memory-local') + sep,
+      getPrimaryProjectConfigPath(getCwd(), 'agent-memory-local') + sep,
     )
   ) {
     return true
@@ -120,7 +127,7 @@ export function getMemoryScopeDisplay(
     case 'user':
       return `User (${join(getMemoryBaseDir(), 'agent-memory')}/)`
     case 'project':
-      return 'Project (.claude/agent-memory/)'
+      return 'Project (.my_agent/agent-memory/)'
     case 'local':
       return `Local (${getLocalAgentMemoryDir('...')})`
     default:

@@ -24,6 +24,10 @@ import { getPlatform } from '../platform.js'
 import { clone, jsonStringify } from '../slowOperations.js'
 import { profileCheckpoint } from '../startupProfiler.js'
 import {
+  getPrimaryProjectConfigPath,
+  PRIMARY_CONFIG_DIR_NAME,
+} from '../appNamespace.js'
+import {
   type EditableSettingSource,
   getEnabledSettingSources,
   type SettingSource,
@@ -282,9 +286,9 @@ export function getSettingsFilePathForSource(
       )
     case 'projectSettings':
     case 'localSettings': {
-      return join(
+      return getPrimaryProjectConfigPath(
         getSettingsRootPathForSource(source),
-        getRelativeSettingsFilePathForSource(source),
+        source === 'projectSettings' ? 'settings.json' : 'settings.local.json',
       )
     }
     case 'policySettings':
@@ -300,9 +304,9 @@ export function getRelativeSettingsFilePathForSource(
 ): string {
   switch (source) {
     case 'projectSettings':
-      return join('.claude', 'settings.json')
+      return join(PRIMARY_CONFIG_DIR_NAME, 'settings.json')
     case 'localSettings':
-      return join('.claude', 'settings.local.json')
+      return join(PRIMARY_CONFIG_DIR_NAME, 'settings.local.json')
   }
 }
 

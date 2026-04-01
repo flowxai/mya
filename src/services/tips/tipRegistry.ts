@@ -40,6 +40,14 @@ import { isPluginInstalled } from '../../utils/plugins/installedPluginsManager.j
 import { loadKnownMarketplacesConfigSafe } from '../../utils/plugins/marketplaceManager.js'
 import { OFFICIAL_MARKETPLACE_NAME } from '../../utils/plugins/officialMarketplace.js'
 import {
+  APP_COMMAND_NAME,
+} from '../../utils/appNamespace.js'
+import {
+  APP_DISPLAY_NAME,
+  getGlobalSkillsDirDisplayPath,
+  getProjectSkillsDirDisplayPath,
+} from '../../utils/appBranding.js'
+import {
   getCurrentSessionAgentColor,
   isCustomTitleEnabled,
 } from '../../utils/sessionStorage.js'
@@ -96,7 +104,7 @@ const externalTips: Tip[] = [
   {
     id: 'new-user-warmup',
     content: async () =>
-      `Start with small features or bug fixes, tell Claude to propose a plan, and verify its suggested edits`,
+      `Start with small features or bug fixes, tell ${APP_DISPLAY_NAME} to propose a plan, and verify its suggested edits`,
     cooldownSessions: 3,
     async isRelevant() {
       const config = getGlobalConfig()
@@ -143,7 +151,7 @@ const externalTips: Tip[] = [
   {
     id: 'git-worktrees',
     content: async () =>
-      'Use git worktrees to run multiple Claude sessions in parallel.',
+      `Use git worktrees to run multiple ${APP_DISPLAY_NAME} sessions in parallel.`,
     cooldownSessions: 10,
     isRelevant: async () => {
       try {
@@ -158,7 +166,7 @@ const externalTips: Tip[] = [
   {
     id: 'color-when-multi-clauding',
     content: async () =>
-      'Running multiple Claude sessions? Use /color and /rename to tell them apart at a glance.',
+      `Running multiple ${APP_DISPLAY_NAME} sessions? Use /color and /rename to tell them apart at a glance.`,
     cooldownSessions: 10,
     isRelevant: async () => {
       if (getCurrentSessionAgentColor()) return false
@@ -216,7 +224,7 @@ const externalTips: Tip[] = [
   },
   {
     id: 'memory-command',
-    content: async () => 'Use /memory to view and manage Claude memory',
+    content: async () => `Use /memory to view and manage ${APP_DISPLAY_NAME} memory`,
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()
@@ -355,7 +363,7 @@ const externalTips: Tip[] = [
   {
     id: 'paste-images-mac',
     content: async () =>
-      'Paste images into Claude Code using control+v (not cmd+v!)',
+      `Paste images into ${APP_DISPLAY_NAME} using control+v (not cmd+v!)`,
     cooldownSessions: 10,
     isRelevant: async () => getPlatform() === 'macos',
   },
@@ -376,7 +384,7 @@ const externalTips: Tip[] = [
   {
     id: 'continue',
     content: async () =>
-      'Run claude --continue or claude --resume to resume a conversation',
+      `Run ${APP_COMMAND_NAME} --continue or ${APP_COMMAND_NAME} --resume to resume a conversation`,
     cooldownSessions: 10,
     isRelevant: async () => true,
   },
@@ -391,7 +399,7 @@ const externalTips: Tip[] = [
   {
     id: 'custom-commands',
     content: async () =>
-      'Create skills by adding .md files to .claude/skills/ in your project or ~/.claude/skills/ for skills that work in any project',
+      `Create skills by adding .md files to ${getProjectSkillsDirDisplayPath()} in your project or ${getGlobalSkillsDirDisplayPath()} for skills that work in any project`,
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()

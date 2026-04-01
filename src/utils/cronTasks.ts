@@ -19,6 +19,7 @@ import {
   getSessionCronTasks,
   removeSessionCronTasks,
 } from '../bootstrap/state.js'
+import { getPrimaryProjectConfigPath } from './appNamespace.js'
 import { computeNextCronRun, parseCronExpression } from './cron.js'
 import { logForDebugging } from './debug.js'
 import { isFsInaccessible } from './errors.js'
@@ -71,15 +72,16 @@ export type CronTask = {
 
 type CronFile = { tasks: CronTask[] }
 
-const CRON_FILE_REL = join('.claude', 'scheduled_tasks.json')
-
 /**
  * Path to the cron file. `dir` defaults to getProjectRoot() — pass it
  * explicitly from contexts that don't run through main.tsx (e.g. the Agent
  * SDK daemon, which has no bootstrap state).
  */
 export function getCronFilePath(dir?: string): string {
-  return join(dir ?? getProjectRoot(), CRON_FILE_REL)
+  return getPrimaryProjectConfigPath(
+    dir ?? getProjectRoot(),
+    'scheduled_tasks.json',
+  )
 }
 
 /**

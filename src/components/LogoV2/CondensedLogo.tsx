@@ -11,6 +11,7 @@ import { truncate } from '../../utils/format.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { formatModelAndBilling, getLogoDisplayData, truncatePath } from '../../utils/logoV2Utils.js';
 import { renderModelSetting } from '../../utils/model/model.js';
+import { APP_COMMAND_NAME } from '../../utils/appNamespace.js';
 import { OffscreenFreeze } from '../OffscreenFreeze.js';
 import { AnimatedClawd } from './AnimatedClawd.js';
 import { Clawd } from './Clawd.js';
@@ -88,7 +89,7 @@ export function CondensedLogo() {
   }
   let t5;
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
-    t5 = <Text bold={true}>Free Code</Text>;
+    t5 = <Text bold={true}>{APP_COMMAND_NAME}</Text>;
     $[8] = t5;
   } else {
     t5 = $[8];

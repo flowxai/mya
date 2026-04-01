@@ -6,9 +6,9 @@
  * on top so that user/project/local/flag/policy sources all override.
  */
 
-import { join } from 'path'
 import type { z } from 'zod/v4'
 import { getAdditionalDirectoriesForClaudeMd } from '../../bootstrap/state.js'
+import { getPrimaryProjectConfigPath } from '../appNamespace.js'
 import { parseSettingsFile } from '../settings/settings.js'
 import type {
   ExtraKnownMarketplaceSchema,
@@ -37,7 +37,7 @@ export function getAddDirEnabledPlugins(): NonNullable<
   const result: NonNullable<SettingsJson['enabledPlugins']> = {}
   for (const dir of getAdditionalDirectoriesForClaudeMd()) {
     for (const file of SETTINGS_FILES) {
-      const { settings } = parseSettingsFile(join(dir, '.claude', file))
+      const { settings } = parseSettingsFile(getPrimaryProjectConfigPath(dir, file))
       if (!settings?.enabledPlugins) {
         continue
       }
@@ -60,7 +60,7 @@ export function getAddDirExtraMarketplaces(): Record<
   const result: Record<string, ExtraKnownMarketplace> = {}
   for (const dir of getAdditionalDirectoriesForClaudeMd()) {
     for (const file of SETTINGS_FILES) {
-      const { settings } = parseSettingsFile(join(dir, '.claude', file))
+      const { settings } = parseSettingsFile(getPrimaryProjectConfigPath(dir, file))
       if (!settings?.extraKnownMarketplaces) {
         continue
       }

@@ -1,0 +1,32 @@
+{
+  "name": "@mya/connect-internal",
+  "version": "0.3.0",
+  "description": "Bundled multi-channel bridge used by mya connect.",
+  "private": true,
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "bin": {
+    "mya-connect": "./bin/mya-connect.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node ./bin/mya-connect.js help",
+    "wechat:migrate": "node ./bin/mya-connect.js wechat migrate",
+    "wechat:login": "node ./bin/mya-connect.js wechat login",
+    "wechat:start": "node ./bin/mya-connect.js wechat start",
+    "wechat:accounts": "node ./bin/mya-connect.js wechat accounts",
+    "feishu:start": "node ./bin/mya-connect.js feishu start",
+    "feishu:check": "node ./bin/mya-connect.js feishu check",
+    "check": "node --check ./src/index.js && node --check ./src/app/wechat-runtime.js && node --check ./src/app/feishu-runtime.js && node --check ./src/channels/wechat/config.js && node --check ./src/channels/feishu/config.js && node --check ./src/infra/attachments/inbox.js && node --check ./src/infra/config/config.js && node --check ./src/infra/config/wechat-migration.js && node --check ./src/infra/storage/session-store.js && node --check ./src/infra/mya/runner.js && node --check ./src/infra/mya/stream-turn.js && node --check ./src/infra/weixin/api.js && node --check ./src/infra/weixin/login.js && node --check ./src/infra/weixin/account-store.js && node --check ./src/infra/weixin/context-token-store.js && node --check ./src/infra/weixin/redact.js && node --check ./src/infra/weixin/sync-buffer-store.js && node --check ./src/infra/weixin/message-utils.js && node --check ./src/infra/weixin/media-mime.js && node --check ./src/infra/weixin/media-receive.js && node --check ./src/infra/weixin/media-send.js && node --check ./src/infra/feishu/message-utils.js && node --check ./src/infra/feishu/file-send.js && node --check ./src/infra/codex/message-utils.js && node --check ./src/shared/branding.js && node --check ./src/shared/command-parsing.js && node --check ./src/shared/workspace-paths.js && node --check ./src/shared/error-text.js && node --check ./bin/mya.js && node --check ./bin/mya-connect.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0",
+    "dotenv": "^16.4.7",
+    "qrcode-terminal": "0.12.0",
+    "ws": "^8.19.0"
+  }
+}

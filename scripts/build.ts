@@ -40,6 +40,7 @@ const fullExperimentalFeatures = [
   'SHOT_STATS',
   'TEAMMEM',
   'TOKEN_BUDGET',
+  'TRANSCRIPT_CLASSIFIER',
   'TREE_SITTER_BASH',
   'TREE_SITTER_BASH_SHADOW',
   'ULTRAPLAN',
@@ -79,7 +80,7 @@ function getVersionChangelog(): string {
   )
 }
 
-const defaultFeatures = ['VOICE_MODE']
+const defaultFeatures = ['VOICE_MODE', 'TRANSCRIPT_CLASSIFIER', 'BUDDY']
 const featureSet = new Set(defaultFeatures)
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i]

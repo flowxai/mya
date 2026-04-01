@@ -5,6 +5,7 @@ import { getOriginalCwd } from '../../../bootstrap/state.js';
 import { Text } from '../../../ink.js';
 import { getShortcutDisplay } from '../../../keybindings/shortcutFormat.js';
 import type { ToolPermissionContext } from '../../../Tool.js';
+import { PRIMARY_CONFIG_DIR_NAME } from '../../../utils/appNamespace.js';
 import { expandPath, getDirectoryForPath } from '../../../utils/path.js';
 import { normalizeCaseForComparison, pathInAllowedWorkingPath } from '../../../utils/permissions/filesystem.js';
 import type { OptionWithDescription } from '../../CustomSelect/select.js';
@@ -14,7 +15,7 @@ import type { OptionWithDescription } from '../../CustomSelect/select.js';
  */
 export function isInClaudeFolder(filePath: string): boolean {
   const absolutePath = expandPath(filePath);
-  const claudeFolderPath = expandPath(`${getOriginalCwd()}/.claude`);
+  const claudeFolderPath = expandPath(`${getOriginalCwd()}/${PRIMARY_CONFIG_DIR_NAME}`);
 
   // Check if the path is within the project's .claude folder
   const normalizedAbsolutePath = normalizeCaseForComparison(absolutePath);
@@ -33,7 +34,7 @@ export function isInClaudeFolder(filePath: string): boolean {
  */
 export function isInGlobalClaudeFolder(filePath: string): boolean {
   const absolutePath = expandPath(filePath);
-  const globalClaudeFolderPath = join(homedir(), '.claude');
+  const globalClaudeFolderPath = join(homedir(), PRIMARY_CONFIG_DIR_NAME);
   const normalizedAbsolutePath = normalizeCaseForComparison(absolutePath);
   const normalizedGlobalClaudeFolderPath = normalizeCaseForComparison(globalClaudeFolderPath);
   return normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + sep.toLowerCase()) || normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + '/');
@@ -76,7 +77,7 @@ export function getFilePermissionOptions({
       type: 'input',
       label: 'Yes',
       value: 'yes',
-      placeholder: 'and tell Claude what to do next',
+      placeholder: 'and tell mya what to do next',
       onChange: onAcceptFeedbackChange,
       allowEmptySubmitToCancel: true,
       option: {
@@ -104,7 +105,7 @@ export function getFilePermissionOptions({
   // persisted permission rules.
   if ((inClaudeFolder || inGlobalClaudeFolder) && operationType !== 'read') {
     options.push({
-      label: 'Yes, and allow Claude to edit its own settings for this session',
+      label: 'Yes, and allow mya to edit its own settings for this session',
       value: 'yes-claude-folder',
       option: {
         type: 'accept-session',
@@ -155,7 +156,7 @@ export function getFilePermissionOptions({
       type: 'input',
       label: 'No',
       value: 'no',
-      placeholder: 'and tell Claude what to do differently',
+      placeholder: 'and tell mya what to do differently',
       onChange: onRejectFeedbackChange,
       allowEmptySubmitToCancel: true,
       option: {

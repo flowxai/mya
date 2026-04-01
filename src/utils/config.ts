@@ -22,6 +22,7 @@ import { ConfigParseError, getErrnoCode } from './errors.js'
 import { writeFileSyncAndFlush_DEPRECATED } from './file.js'
 import { getFsImplementation } from './fsOperations.js'
 import { findCanonicalGitRoot } from './git.js'
+import { getProjectConfigDirCandidates } from './appNamespace.js'
 import { safeParseJSON } from './json.js'
 import { stripBOM } from './jsonRead.js'
 import * as lockfile from './lockfile.js'
@@ -1799,7 +1800,7 @@ export function getMemoryPath(memoryType: MemoryType): string {
 }
 
 export function getManagedClaudeRulesDir(): string {
-  return join(getManagedFilePath(), '.claude', 'rules')
+  return join(getProjectConfigDirCandidates(getManagedFilePath())[0], 'rules')
 }
 
 export function getUserClaudeRulesDir(): string {

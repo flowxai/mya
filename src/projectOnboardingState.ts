@@ -4,6 +4,7 @@ import {
   getCurrentProjectConfig,
   saveCurrentProjectConfig,
 } from './utils/config.js'
+import { APP_COMMAND_NAME } from './utils/appNamespace.js'
 import { getCwd } from './utils/cwd.js'
 import { isDirEmpty } from './utils/file.js'
 import { getFsImplementation } from './utils/fsOperations.js'
@@ -25,14 +26,14 @@ export function getSteps(): Step[] {
   return [
     {
       key: 'workspace',
-      text: 'Ask Claude to create a new app or clone a repository',
+      text: `Ask ${APP_COMMAND_NAME} to create a new app or clone a repository`,
       isComplete: false,
       isCompletable: true,
       isEnabled: isWorkspaceDirEmpty,
     },
     {
       key: 'claudemd',
-      text: 'Run /init to create a CLAUDE.md file with instructions for Claude',
+      text: `Run /init to create a CLAUDE.md file with instructions for ${APP_COMMAND_NAME}`,
       isComplete: hasClaudeMd,
       isCompletable: true,
       isEnabled: !isWorkspaceDirEmpty,

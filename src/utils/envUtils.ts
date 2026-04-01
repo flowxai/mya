@@ -1,17 +1,8 @@
-import memoize from 'lodash-es/memoize.js'
-import { homedir } from 'os'
-import { join } from 'path'
+import { getRuntimeConfigHomeDir } from './appNamespace.js'
 
-// Memoized: 150+ callers, many on hot paths. Keyed off CLAUDE_CONFIG_DIR so
-// tests that change the env var get a fresh value without explicit cache.clear.
-export const getClaudeConfigHomeDir = memoize(
-  (): string => {
-    return (
-      process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
-    ).normalize('NFC')
-  },
-  () => process.env.CLAUDE_CONFIG_DIR,
-)
+// Memoized: 150+ callers, many on hot paths. Supports the new MY_AGENT_CONFIG_DIR
+// override while remaining compatible with the legacy CLAUDE_CONFIG_DIR name.
+export const getClaudeConfigHomeDir = getRuntimeConfigHomeDir
 
 export function getTeamsDir(): string {
   return join(getClaudeConfigHomeDir(), 'teams')

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: connect/package-lock.json
+
+      - name: Install core dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build core CLI
+        run: bun run build
+
+      - name: Install connect dependencies
+        run: npm --prefix ./connect install
+
+      - name: Check connect runtime
+        run: npm --prefix ./connect run check
+
+      - name: Test connect runtime
+        run: npm --prefix ./connect test

@@ -2,6 +2,7 @@ import memoize from 'lodash-es/memoize.js'
 import { homedir } from 'os'
 import { join } from 'path'
 import { fileSuffixForOauthConfig } from '../constants/oauth.js'
+import { ensureLegacyGlobalConfigMigrated } from './appNamespace.js'
 import { isRunningWithBun } from './bundledMode.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { findExecutable } from './findExecutable.js'
@@ -12,17 +13,18 @@ type Platform = 'win32' | 'darwin' | 'linux'
 
 // Config and data paths
 export const getGlobalClaudeFile = memoize((): string => {
+  const configHomeDir = getClaudeConfigHomeDir()
+
   // Legacy fallback for backwards compatibility
   if (
     getFsImplementation().existsSync(
-      join(getClaudeConfigHomeDir(), '.config.json'),
+      join(configHomeDir, '.config.json'),
     )
   ) {
-    return join(getClaudeConfigHomeDir(), '.config.json')
+    return join(configHomeDir, '.config.json')
   }
 
-  const filename = `.claude${fileSuffixForOauthConfig()}.json`
-  return join(process.env.CLAUDE_CONFIG_DIR || homedir(), filename)
+  return ensureLegacyGlobalConfigMigrated(fileSuffixForOauthConfig())
 })
 
 const hasInternetAccess = memoize(async (): Promise<boolean> => {

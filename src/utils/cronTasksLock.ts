@@ -9,9 +9,10 @@
 // probe, stale-lock recovery, cleanup-on-exit.
 
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
-import { dirname, join } from 'path'
+import { dirname } from 'path'
 import { z } from 'zod/v4'
 import { getProjectRoot, getSessionId } from '../bootstrap/state.js'
+import { getPrimaryProjectConfigPath } from './appNamespace.js'
 import { registerCleanup } from './cleanupRegistry.js'
 import { logForDebugging } from './debug.js'
 import { getErrnoCode } from './errors.js'
@@ -19,8 +20,6 @@ import { isProcessRunning } from './genericProcessUtils.js'
 import { safeParseJSON } from './json.js'
 import { lazySchema } from './lazySchema.js'
 import { jsonStringify } from './slowOperations.js'
-
-const LOCK_FILE_REL = join('.claude', 'scheduled_tasks.lock')
 
 const schedulerLockSchema = lazySchema(() =>
   z.object({
@@ -47,7 +46,10 @@ let unregisterCleanup: (() => void) | undefined
 let lastBlockedBy: string | undefined
 
 function getLockPath(dir?: string): string {
-  return join(dir ?? getProjectRoot(), LOCK_FILE_REL)
+  return getPrimaryProjectConfigPath(
+    dir ?? getProjectRoot(),
+    'scheduled_tasks.lock',
+  )
 }
 
 async function readLock(dir?: string): Promise<SchedulerLock | undefined> {
