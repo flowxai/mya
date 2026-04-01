@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "claude-code-source-snapshot",
+      "name": "mya",
       "dependencies": {
         "@alcalzone/ansi-tokenize": "^0.3.0",
         "@anthropic-ai/bedrock-sdk": "^0.26.4",

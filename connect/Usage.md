@@ -1,5 +1,5 @@
 ```bash
-cd /absolute/path/to/repo
+cd /path/to/mya
 npm --prefix ./connect install
 cp ./connect/.env.example ./connect/.env
 ```
