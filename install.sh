@@ -9,13 +9,21 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-# Override this when you rehost the repo under your own mya repository URL.
-REPO="${MYA_REPO_URL:-https://github.com/flowxai/mya.git}"
+REPO_SLUG="${MYA_REPO_SLUG:-flowxai/mya}"
+REPO_URL="${MYA_REPO_URL:-https://github.com/${REPO_SLUG}.git}"
 INSTALL_DIR="${MYA_INSTALL_DIR:-$HOME/mya}"
-CONNECT_DIR="$INSTALL_DIR/connect"
+LINK_DIR="${MYA_LINK_DIR:-$HOME/.local/bin}"
+TARGET_VERSION="latest"
+INSTALL_MODE="auto"
+UPGRADE_ONLY=0
+CONNECT_READY=0
+CONNECT_SUPPORTED=0
 BUN_MIN_VERSION="1.3.11"
 NODE_MIN_MAJOR="22"
-CONNECT_READY=0
+SCRIPT_SOURCE_DIR=""
+OS=""
+ARCH=""
+RELEASE_TAG=""
 
 info()  { printf "${CYAN}[*]${RESET} %s\n" "$*"; }
 ok()    { printf "${GREEN}[+]${RESET} %s\n" "$*"; }
@@ -25,7 +33,7 @@ fail()  { printf "${RED}[x]${RESET} %s\n" "$*"; exit 1; }
 header() {
   echo ""
   printf "${BOLD}${CYAN}"
-  cat << 'ART'
+  cat <<'ART'
   __  __ _   _  __ _
  |  \/  | | | |/ _` |
  | |\/| | |_| | (_| |
@@ -37,24 +45,105 @@ ART
   echo ""
 }
 
+usage() {
+  cat <<EOF
+Usage: ./install.sh [options]
+
+Options:
+  --source              Install from source checkout or clone the repo and build
+  --release             Install a prebuilt GitHub release archive
+  --version <tag>       Release tag to install (default: latest)
+  --dir <path>          Installation directory (default: \$HOME/mya)
+  --upgrade             Upgrade an existing installation in place
+  -h, --help            Show this help
+
+Environment overrides:
+  MYA_REPO_SLUG         GitHub repo slug used for releases (default: flowxai/mya)
+  MYA_REPO_URL          Git clone URL for source installs
+  MYA_INSTALL_DIR       Install destination (default: \$HOME/mya)
+  MYA_LINK_DIR          Directory for the mya symlink (default: \$HOME/.local/bin)
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --source)
+        INSTALL_MODE="source"
+        shift
+        ;;
+      --release)
+        INSTALL_MODE="release"
+        shift
+        ;;
+      --version)
+        [[ $# -ge 2 ]] || fail "--version requires a value"
+        TARGET_VERSION="$2"
+        shift 2
+        ;;
+      --dir)
+        [[ $# -ge 2 ]] || fail "--dir requires a value"
+        INSTALL_DIR="$2"
+        shift 2
+        ;;
+      --upgrade)
+        UPGRADE_ONLY=1
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown option: $1"
+        ;;
+    esac
+  done
+}
+
+check_prerequisites() {
+  command -v curl >/dev/null 2>&1 || fail "curl is required"
+  command -v tar >/dev/null 2>&1 || fail "tar is required"
+}
+
+detect_source_dir() {
+  local script_path=""
+  script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -f "${script_path}/package.json" && -f "${script_path}/scripts/build.ts" ]]; then
+    SCRIPT_SOURCE_DIR="$script_path"
+  fi
+}
+
+detect_mode() {
+  if [[ "$INSTALL_MODE" != "auto" ]]; then
+    return
+  fi
+
+  if [[ -n "$SCRIPT_SOURCE_DIR" ]]; then
+    INSTALL_MODE="source"
+  else
+    INSTALL_MODE="release"
+  fi
+}
+
 check_os() {
   case "$(uname -s)" in
     Darwin) OS="macos" ;;
-    Linux)  OS="linux" ;;
-    *)      fail "Unsupported OS: $(uname -s). macOS or Linux required." ;;
+    Linux) OS="linux" ;;
+    *) fail "Unsupported OS: $(uname -s). macOS or Linux required." ;;
   esac
-  ok "OS: $(uname -s) $(uname -m)"
-}
 
-check_git() {
-  if ! command -v git >/dev/null 2>&1; then
-    fail "git is not installed. Install it first."
-  fi
-  ok "git: $(git --version | head -1)"
+  case "$(uname -m)" in
+    x86_64|amd64) ARCH="x64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    *) fail "Unsupported architecture: $(uname -m)" ;;
+  esac
+
+  ok "Platform: $(uname -s) $(uname -m)"
 }
 
 version_gte() {
-  [ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]
+  [[ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" == "$2" ]]
 }
 
 check_bun() {
@@ -76,12 +165,13 @@ install_bun() {
   curl -fsSL https://bun.sh/install | bash
   export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
   export PATH="$BUN_INSTALL/bin:$PATH"
-  if ! command -v bun >/dev/null 2>&1; then
-    fail "bun installation succeeded but binary not found on PATH.
-Add this to your shell profile and restart:
-  export PATH=\"\$HOME/.bun/bin:\$PATH\""
-  fi
+  command -v bun >/dev/null 2>&1 || fail "bun installed but not found on PATH. Add \$HOME/.bun/bin to PATH and retry."
   ok "bun: v$(bun --version) (just installed)"
+}
+
+check_git() {
+  command -v git >/dev/null 2>&1 || fail "git is required for source installs"
+  ok "git: $(git --version | head -1)"
 }
 
 check_node() {
@@ -92,85 +182,157 @@ check_node() {
 
   local major
   major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-  if [ "$major" -lt "$NODE_MIN_MAJOR" ]; then
-    warn "Node.js v$(node --version) found, but v${NODE_MIN_MAJOR}+ is required for \`mya connect\`."
+  if [[ "$major" -lt "$NODE_MIN_MAJOR" ]]; then
+    warn "Node.js $(node --version) found, but v${NODE_MIN_MAJOR}+ is required for \`mya connect\`."
     return
   fi
 
   CONNECT_READY=1
+  CONNECT_SUPPORTED=1
   ok "node: $(node --version)"
   ok "npm:  $(npm --version)"
 }
 
-clone_repo() {
-  if [ -d "$INSTALL_DIR" ]; then
-    warn "$INSTALL_DIR already exists"
-    if [ -d "$INSTALL_DIR/.git" ]; then
-      info "Pulling latest changes..."
-      git -C "$INSTALL_DIR" pull --ff-only origin main 2>/dev/null || warn "Pull failed, continuing with existing copy"
+ensure_parent_dir() {
+  mkdir -p "$(dirname "$INSTALL_DIR")"
+  mkdir -p "$LINK_DIR"
+}
+
+clone_or_refresh_repo() {
+  if [[ -n "$SCRIPT_SOURCE_DIR" ]]; then
+    info "Installing from local checkout: $SCRIPT_SOURCE_DIR"
+    rm -rf "$INSTALL_DIR"
+    mkdir -p "$(dirname "$INSTALL_DIR")"
+    cp -R "$SCRIPT_SOURCE_DIR" "$INSTALL_DIR"
+    ok "Copied source checkout to $INSTALL_DIR"
+    return
+  fi
+
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    info "Refreshing existing source checkout..."
+    git -C "$INSTALL_DIR" fetch --tags --prune origin
+    if [[ "$TARGET_VERSION" == "latest" ]]; then
+      git -C "$INSTALL_DIR" checkout --force main
+      git -C "$INSTALL_DIR" pull --ff-only origin main
+    else
+      git -C "$INSTALL_DIR" checkout --force "$TARGET_VERSION"
     fi
-  else
-    info "Cloning repository..."
-    git clone --depth 1 "$REPO" "$INSTALL_DIR"
+    ok "Updated source checkout at $INSTALL_DIR"
+    return
   fi
-  ok "Source: $INSTALL_DIR"
+
+  info "Cloning repository..."
+  git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
+  if [[ "$TARGET_VERSION" != "latest" ]]; then
+    git -C "$INSTALL_DIR" fetch --tags --depth 1 origin "$TARGET_VERSION"
+    git -C "$INSTALL_DIR" checkout --force "$TARGET_VERSION"
+  fi
+  ok "Cloned source to $INSTALL_DIR"
 }
 
-install_core_deps() {
+install_core_from_source() {
+  check_git
+  check_bun
+  clone_or_refresh_repo
+
   info "Installing core dependencies..."
-  cd "$INSTALL_DIR"
-  bun install --frozen-lockfile 2>/dev/null || bun install
+  (cd "$INSTALL_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
   ok "Core dependencies installed"
-}
 
-install_connect_deps() {
-  if [ "$CONNECT_READY" -ne 1 ]; then
+  if [[ "$CONNECT_SUPPORTED" -eq 1 && -f "$INSTALL_DIR/connect/package.json" ]]; then
+    info "Installing bundled connector dependencies..."
+    npm --prefix "$INSTALL_DIR/connect" install
+    ok "Bundled connector dependencies installed"
+  else
     warn "Skipping bundled connector dependencies."
-    return
-  fi
-  if [ ! -f "$CONNECT_DIR/package.json" ]; then
-    warn "Bundled connect package not found at $CONNECT_DIR. \`mya connect\` will be unavailable."
     CONNECT_READY=0
-    return
   fi
 
-  info "Installing bundled connector dependencies..."
-  npm --prefix "$CONNECT_DIR" install
-  ok "Bundled connector dependencies installed"
-}
-
-build_binary() {
   info "Building mya..."
-  cd "$INSTALL_DIR"
-  bun run build
+  (cd "$INSTALL_DIR" && bun run build)
   ok "Binary built: $INSTALL_DIR/cli"
 }
 
+resolve_latest_release_tag() {
+  local latest_url effective_url
+  latest_url="https://github.com/${REPO_SLUG}/releases/latest"
+  effective_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "$latest_url")"
+  RELEASE_TAG="${effective_url##*/}"
+  [[ -n "$RELEASE_TAG" ]] || fail "Failed to resolve the latest GitHub release tag"
+}
+
+resolve_release_tag() {
+  if [[ "$TARGET_VERSION" == "latest" ]]; then
+    resolve_latest_release_tag
+  else
+    RELEASE_TAG="$TARGET_VERSION"
+  fi
+}
+
+extract_release_archive() {
+  local tmp_root archive_url archive_path unpack_dir extracted_dir archive_basename
+  tmp_root="$(mktemp -d)"
+  archive_basename="mya-${RELEASE_TAG#v}-${OS}-${ARCH}.tar.gz"
+  archive_path="$tmp_root/${archive_basename}"
+  unpack_dir="$tmp_root/unpack"
+  archive_url="https://github.com/${REPO_SLUG}/releases/download/${RELEASE_TAG}/${archive_basename}"
+
+  info "Downloading ${RELEASE_TAG} (${archive_basename})..."
+  curl -fL "$archive_url" -o "$archive_path" || fail "Failed to download ${archive_url}"
+
+  mkdir -p "$unpack_dir"
+  tar -xzf "$archive_path" -C "$unpack_dir"
+  extracted_dir="$unpack_dir/mya"
+  [[ -d "$extracted_dir" ]] || fail "Release archive did not contain a top-level mya/ directory"
+
+  rm -rf "$INSTALL_DIR"
+  mkdir -p "$(dirname "$INSTALL_DIR")"
+  mv "$extracted_dir" "$INSTALL_DIR"
+
+  rm -rf "$tmp_root"
+  ok "Installed release ${RELEASE_TAG} to $INSTALL_DIR"
+}
+
+install_from_release() {
+  resolve_release_tag
+  extract_release_archive
+
+  if [[ -d "$INSTALL_DIR/connect/node_modules" ]]; then
+    CONNECT_READY="$CONNECT_SUPPORTED"
+  elif [[ "$CONNECT_SUPPORTED" -eq 1 && -f "$INSTALL_DIR/connect/package.json" ]]; then
+    info "Installing bundled connector dependencies..."
+    npm --prefix "$INSTALL_DIR/connect" install
+    CONNECT_READY=1
+  else
+    CONNECT_READY=0
+  fi
+
+  chmod +x "$INSTALL_DIR/bin/mya" "$INSTALL_DIR/cli" "$INSTALL_DIR/install.sh"
+}
+
 link_binary() {
-  local link_dir="$HOME/.local/bin"
-  mkdir -p "$link_dir"
+  ln -sf "$INSTALL_DIR/bin/mya" "$LINK_DIR/mya"
+  ok "Symlinked: $LINK_DIR/mya"
 
-  ln -sf "$INSTALL_DIR/bin/mya" "$link_dir/mya"
-  ok "Symlinked: $link_dir/mya"
-
-  if ! echo "$PATH" | tr ':' '\n' | grep -qx "$link_dir"; then
-    warn "$link_dir is not on your PATH"
+  if ! echo "${PATH:-}" | tr ':' '\n' | grep -qx "$LINK_DIR"; then
+    warn "$LINK_DIR is not on your PATH"
     echo ""
     printf "${YELLOW}  Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):${RESET}\n"
-    printf "${BOLD}    export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}\n"
+    printf "${BOLD}    export PATH=\"${LINK_DIR}:\$PATH\"${RESET}\n"
     echo ""
   fi
 }
 
 print_summary() {
   echo ""
-  printf "${GREEN}${BOLD}  Installation complete!${RESET}\n"
+  printf "${GREEN}${BOLD}  mya is ready!${RESET}\n"
   echo ""
   printf "  ${BOLD}Run it:${RESET}\n"
   printf "    ${CYAN}mya${RESET}                          # interactive REPL\n"
   printf "    ${CYAN}mya -p \"your prompt\"${RESET}          # one-shot mode\n"
-  if [ "$CONNECT_READY" -eq 1 ]; then
-    printf "    ${CYAN}mya connect wechat login${RESET}     # start微信扫码登录\n"
+  printf "    ${CYAN}mya update${RESET}                   # upgrade this installation\n"
+  if [[ "$CONNECT_READY" -eq 1 ]]; then
+    printf "    ${CYAN}mya connect wechat login${RESET}     # 微信扫码登录\n"
     printf "    ${CYAN}mya connect feishu check${RESET}     # 校验飞书应用凭证\n"
   else
     printf "    ${DIM}Install Node.js ${NODE_MIN_MAJOR}+ later if you want \`mya connect\`.${RESET}\n"
@@ -179,28 +341,44 @@ print_summary() {
   printf "  ${BOLD}Set your API key:${RESET}\n"
   printf "    ${CYAN}export ANTHROPIC_API_KEY=\"sk-ant-...\"${RESET}\n"
   echo ""
-  printf "  ${DIM}Source: $INSTALL_DIR${RESET}\n"
-  printf "  ${DIM}Binary: $INSTALL_DIR/cli${RESET}\n"
-  printf "  ${DIM}Link:   ~/.local/bin/mya${RESET}\n"
-  if [ "$CONNECT_READY" -eq 1 ]; then
-    printf "  ${DIM}Connect: $CONNECT_DIR${RESET}\n"
+  printf "  ${DIM}Install mode: ${INSTALL_MODE}${RESET}\n"
+  if [[ -n "$RELEASE_TAG" ]]; then
+    printf "  ${DIM}Release tag: ${RELEASE_TAG}${RESET}\n"
   fi
+  printf "  ${DIM}Install dir: ${INSTALL_DIR}${RESET}\n"
+  printf "  ${DIM}Binary:      ${INSTALL_DIR}/cli${RESET}\n"
+  printf "  ${DIM}Link:        ${LINK_DIR}/mya${RESET}\n"
   echo ""
 }
 
-header
-info "Starting installation..."
-echo ""
+main() {
+  parse_args "$@"
+  header
+  info "$([[ "$UPGRADE_ONLY" -eq 1 ]] && echo "Starting upgrade..." || echo "Starting installation...")"
+  echo ""
 
-check_os
-check_git
-check_bun
-check_node
-echo ""
+  check_prerequisites
+  detect_source_dir
+  detect_mode
+  check_os
+  check_node
+  ensure_parent_dir
+  echo ""
 
-clone_repo
-install_core_deps
-install_connect_deps
-build_binary
-link_binary
-print_summary
+  case "$INSTALL_MODE" in
+    source)
+      install_core_from_source
+      ;;
+    release)
+      install_from_release
+      ;;
+    *)
+      fail "Unsupported install mode: $INSTALL_MODE"
+      ;;
+  esac
+
+  link_binary
+  print_summary
+}
+
+main "$@"

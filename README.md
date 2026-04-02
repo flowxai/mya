@@ -24,6 +24,14 @@
 
 ## 快速安装
 
+最新 release 一键安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flowxai/mya/main/install.sh | bash
+```
+
+从源码仓库安装：
+
 ```bash
 git clone https://github.com/flowxai/mya.git mya
 cd mya
@@ -32,12 +40,16 @@ cd mya
 
 安装脚本会：
 
-- 检查并安装 Bun
-- 拉取仓库到 `~/mya`
-- 安装核心依赖
-- 如果本机有 Node.js 22+，顺带安装 `mya connect` 的依赖
-- 构建核心二进制
+- 默认安装最新 GitHub release；在源码仓库里运行时则会从源码构建
+- 自动准备 `mya` 主体和内置的 `mya connect`
+- 如果本机有 Node.js 22+，会一并准备微信/飞书通道运行时
 - 把 `mya` 链接到 `~/.local/bin/mya`
+
+升级时直接运行：
+
+```bash
+mya update
+```
 
 ### 依赖要求
 
@@ -138,3 +150,5 @@ bun run build:dev:full
 npm --prefix ./connect run check
 npm --prefix ./connect test
 ```
+
+如果你是在源码仓库里开发，`bun run setup` 已经会把 `connect` 的依赖一起装好，不需要再单独执行 `npm --prefix ./connect install`。

@@ -1,9 +1,9 @@
 import { execa } from 'execa'
 import { readFile, realpath } from 'fs/promises'
 import { homedir } from 'os'
-import { delimiter, join, posix, win32 } from 'path'
+import { dirname, delimiter, join, posix, win32 } from 'path'
 import { checkGlobalInstallPermissions } from './autoUpdater.js'
-import { isInBundledMode } from './bundledMode.js'
+import { isInBundledMode, isRunningWithBun } from './bundledMode.js'
 import {
   formatAutoUpdaterDisabledReason,
   getAutoUpdaterDisabledReason,
@@ -57,12 +57,26 @@ export type DiagnosticInfo = {
   installationPath: string
   invokedBinary: string
   configInstallMethod: InstallMethod | 'not set'
+  updateSource: 'npm registry' | 'github releases' | 'package manager'
   autoUpdates: string
   hasUpdatePermissions: boolean | null
   multipleInstallations: Array<{ type: string; path: string }>
   warnings: Array<{ issue: string; fix: string }>
   recommendation?: string
   packageManager?: string
+  runtime: {
+    bunVersion: string | null
+    nodeVersion: string | null
+    runningWithBun: boolean
+    bundledExecutable: boolean
+  }
+  connect: {
+    bundled: boolean
+    entryPath: string | null
+    dependenciesInstalled: boolean
+    nodeVersion: string | null
+    nodeSupported: boolean
+  }
   ripgrepStatus: {
     working: boolean
     mode: 'system' | 'builtin' | 'embedded'
@@ -162,7 +176,7 @@ async function getInstallationPath(): Promise<string> {
     }
 
     try {
-      const path = await which('claude')
+      const path = await which('mya')
       if (path) {
         return path
       }
@@ -172,8 +186,8 @@ async function getInstallationPath(): Promise<string> {
 
     // If we can't find it, check common locations
     try {
-      await getFsImplementation().stat(join(homedir(), '.local/bin/claude'))
-      return join(homedir(), '.local/bin/claude')
+      await getFsImplementation().stat(join(homedir(), '.local/bin/mya'))
+      return join(homedir(), '.local/bin/mya')
     } catch {
       // Not found
     }
@@ -209,14 +223,18 @@ async function detectMultipleInstallations(): Promise<
   const installations: Array<{ type: string; path: string }> = []
 
   // Check for local installation
-  const localPath = join(homedir(), '.claude', 'local')
+  const localPath = join(homedir(), '.my_agent', 'local')
   if (await localInstallationExists()) {
     installations.push({ type: 'npm-local', path: localPath })
   }
 
   // Check for global npm installation
-  const packagesToCheck = ['@anthropic-ai/claude-code']
-  if (MACRO.PACKAGE_URL && MACRO.PACKAGE_URL !== '@anthropic-ai/claude-code') {
+  const packagesToCheck = ['mya', '@anthropic-ai/claude-code']
+  if (
+    MACRO.PACKAGE_URL &&
+    MACRO.PACKAGE_URL !== 'mya' &&
+    MACRO.PACKAGE_URL !== '@anthropic-ai/claude-code'
+  ) {
     packagesToCheck.push(MACRO.PACKAGE_URL)
   }
   const npmResult = await execFileNoThrow('npm', [
@@ -229,12 +247,12 @@ async function detectMultipleInstallations(): Promise<
     const npmPrefix = npmResult.stdout.trim()
     const isWindows = getPlatform() === 'windows'
 
-    // First check for active installations via bin/claude
-    // Linux / macOS have prefix/bin/claude and prefix/lib/node_modules
-    // Windows has prefix/claude and prefix/node_modules
+    // First check for active installations via bin/mya
+    // Linux / macOS have prefix/bin/mya and prefix/lib/node_modules
+    // Windows has prefix/mya and prefix/node_modules
     const globalBinPath = isWindows
-      ? join(npmPrefix, 'claude')
-      : join(npmPrefix, 'bin', 'claude')
+      ? join(npmPrefix, 'mya')
+      : join(npmPrefix, 'bin', 'mya')
 
     let globalBinExists = false
     try {
@@ -246,7 +264,7 @@ async function detectMultipleInstallations(): Promise<
 
     if (globalBinExists) {
       // Check if this is actually a Homebrew cask installation, not npm-global
-      // When npm is installed via Homebrew, both can exist at /opt/homebrew/bin/claude
+      // When npm is installed via Homebrew, both can exist at /opt/homebrew/bin/mya
       // We need to resolve the symlink to see where it actually points
       let isCurrentHomebrewInstallation = false
 
@@ -267,7 +285,7 @@ async function detectMultipleInstallations(): Promise<
         installations.push({ type: 'npm-global', path: globalBinPath })
       }
     } else {
-      // If no bin/claude exists, check for orphaned packages (no bin/claude symlink)
+      // If no bin/mya exists, check for orphaned packages (no bin/mya symlink)
       for (const packageName of packagesToCheck) {
         const globalPackagePath = isWindows
           ? join(npmPrefix, 'node_modules', packageName)
@@ -289,7 +307,7 @@ async function detectMultipleInstallations(): Promise<
   // Check for native installation
 
   // Check common native installation paths
-  const nativeBinPath = join(homedir(), '.local', 'bin', 'claude')
+  const nativeBinPath = join(homedir(), '.local', 'bin', 'mya')
   try {
     await fs.stat(nativeBinPath)
     installations.push({ type: 'native', path: nativeBinPath })
@@ -300,7 +318,7 @@ async function detectMultipleInstallations(): Promise<
   // Also check if config indicates native installation
   const config = getGlobalConfig()
   if (config.installMethod === 'native') {
-    const nativeDataPath = join(homedir(), '.local', 'share', 'claude')
+    const nativeDataPath = join(homedir(), '.local', 'share', 'mya')
     try {
       await fs.stat(nativeDataPath)
       if (!installations.some(i => i.type === 'native')) {
@@ -435,14 +453,14 @@ async function detectConfigurationIssues(
     if (type === 'npm-local' && config.installMethod !== 'local') {
       warnings.push({
         issue: `Running from local installation but config install method is '${config.installMethod}'`,
-        fix: 'Consider using native installation: claude install',
+        fix: 'Consider reinstalling with ./install.sh --source or switching to a standalone release install.',
       })
     }
 
     if (type === 'native' && config.installMethod !== 'native') {
       warnings.push({
         issue: `Running native installation but config install method is '${config.installMethod}'`,
-        fix: 'Run claude install to update configuration',
+        fix: 'Reinstall or upgrade using ./install.sh so the runtime and config stay aligned.',
       })
     }
   }
@@ -450,7 +468,7 @@ async function detectConfigurationIssues(
   if (type === 'npm-global' && (await localInstallationExists())) {
     warnings.push({
       issue: 'Local installation exists but not being used',
-      fix: 'Consider using native installation: claude install',
+      fix: 'Consider reinstalling with ./install.sh or removing the unused local installation.',
     })
   }
 
@@ -459,29 +477,70 @@ async function detectConfigurationIssues(
 
   // Check if running local installation but it's not in PATH
   if (type === 'npm-local') {
-    // Check if claude is already accessible via PATH
-    const whichResult = await which('claude')
-    const claudeInPath = !!whichResult
+    // Check if mya is already accessible via PATH
+    const whichResult = await which('mya')
+    const myaInPath = !!whichResult
 
-    // Only show warning if claude is NOT in PATH AND no valid alias exists
-    if (!claudeInPath && !validAlias) {
+    // Only show warning if mya is NOT in PATH AND no valid alias exists
+    if (!myaInPath && !validAlias) {
       if (existingAlias) {
         // Alias exists but points to invalid target
         warnings.push({
           issue: 'Local installation not accessible',
-          fix: `Alias exists but points to invalid target: ${existingAlias}. Update alias: alias claude="~/.claude/local/claude"`,
+          fix: `Alias exists but points to invalid target: ${existingAlias}. Update alias: alias mya="~/.my_agent/local/mya"`,
         })
       } else {
         // No alias exists and not in PATH
         warnings.push({
           issue: 'Local installation not accessible',
-          fix: 'Create alias: alias claude="~/.claude/local/claude"',
+          fix: 'Create alias: alias mya="~/.my_agent/local/mya"',
         })
       }
     }
   }
 
   return warnings
+}
+
+async function getNodeVersion(): Promise<string | null> {
+  const result = await execFileNoThrow('node', ['--version'])
+  return result.code === 0 && result.stdout ? result.stdout.trim() : null
+}
+
+function getConnectPaths(installationPath: string, invokedBinary: string): {
+  entryPath: string
+  dependenciesPath: string
+} {
+  const candidateRoots = new Set<string>()
+  const addRoot = (value: string | undefined) => {
+    if (!value || value === 'unknown' || value === 'native') {
+      return
+    }
+    candidateRoots.add(dirname(value))
+  }
+
+  addRoot(installationPath)
+  addRoot(invokedBinary)
+  addRoot(process.argv[1])
+
+  for (const root of candidateRoots) {
+    if (root.endsWith('/bin')) {
+      const base = dirname(root)
+      return {
+        entryPath: join(base, 'connect', 'bin', 'mya-connect.js'),
+        dependenciesPath: join(base, 'connect', 'node_modules'),
+      }
+    }
+  }
+
+  const fallbackRoot =
+    installationPath && installationPath !== 'unknown' && installationPath !== 'native'
+      ? dirname(installationPath)
+      : getCwd()
+  return {
+    entryPath: join(fallbackRoot, 'connect', 'bin', 'mya-connect.js'),
+    dependenciesPath: join(fallbackRoot, 'connect', 'node_modules'),
+  }
 }
 
 export function detectLinuxGlobPatternWarnings(): Array<{
@@ -517,6 +576,7 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
     typeof MACRO !== 'undefined' && MACRO.VERSION ? MACRO.VERSION : 'unknown'
   const installationPath = await getInstallationPath()
   const invokedBinary = getInvokedBinary()
+  const nodeVersion = await getNodeVersion()
   const multipleInstallations = await detectMultipleInstallations()
   const warnings = await detectConfigurationIssues(installationType)
 
@@ -536,13 +596,11 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
 
     for (const install of npmInstalls) {
       if (install.type === 'npm-global') {
-        let uninstallCmd = 'npm -g uninstall @anthropic-ai/claude-code'
-        if (
-          MACRO.PACKAGE_URL &&
-          MACRO.PACKAGE_URL !== '@anthropic-ai/claude-code'
-        ) {
-          uninstallCmd += ` && npm -g uninstall ${MACRO.PACKAGE_URL}`
+        const uninstallTargets = ['@anthropic-ai/claude-code']
+        if (MACRO.PACKAGE_URL && !uninstallTargets.includes(MACRO.PACKAGE_URL)) {
+          uninstallTargets.push(MACRO.PACKAGE_URL)
         }
+        const uninstallCmd = `npm -g uninstall ${uninstallTargets.join(' ')}`
         warnings.push({
           issue: `Leftover npm global installation at ${install.path}`,
           fix: `Run: ${uninstallCmd}`,
@@ -580,7 +638,7 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
     if (!hasUpdatePermissions && !getAutoUpdaterDisabledReason()) {
       warnings.push({
         issue: 'Insufficient permissions for auto-updates',
-        fix: 'Do one of: (1) Re-install node without sudo, or (2) Use `claude install` for native installation',
+        fix: 'Do one of: (1) Re-install Node without sudo, or (2) install a standalone release build of mya so updates can be handled outside global npm',
       })
     }
   }
@@ -602,12 +660,42 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
       ? await getPackageManager()
       : undefined
 
+  const connectPaths = getConnectPaths(installationPath, invokedBinary)
+  const fs = getFsImplementation()
+  let connectBundled = false
+  let connectDependenciesInstalled = false
+  try {
+    await fs.stat(connectPaths.entryPath)
+    connectBundled = true
+  } catch {
+    // not bundled
+  }
+  try {
+    await fs.stat(connectPaths.dependenciesPath)
+    connectDependenciesInstalled = true
+  } catch {
+    // dependencies missing
+  }
+
+  const nodeMajor = nodeVersion
+    ? Number.parseInt(nodeVersion.replace(/^v/, '').split('.')[0] ?? '0', 10)
+    : 0
+  const updateSource =
+    installationType === 'package-manager'
+      ? 'package manager'
+      : installationType === 'npm-global' &&
+          MACRO.PACKAGE_URL !== 'mya' &&
+          MACRO.PACKAGE_URL !== undefined
+        ? 'npm registry'
+        : 'github releases'
+
   const diagnostic: DiagnosticInfo = {
     installationType,
     version,
     installationPath,
     invokedBinary,
     configInstallMethod,
+    updateSource,
     autoUpdates: (() => {
       const reason = getAutoUpdaterDisabledReason()
       return reason
@@ -618,6 +706,19 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
     multipleInstallations,
     warnings,
     packageManager,
+    runtime: {
+      bunVersion: process.versions.bun ?? null,
+      nodeVersion,
+      runningWithBun: isRunningWithBun(),
+      bundledExecutable: isInBundledMode(),
+    },
+    connect: {
+      bundled: connectBundled,
+      entryPath: connectBundled ? connectPaths.entryPath : null,
+      dependenciesInstalled: connectDependenciesInstalled,
+      nodeVersion,
+      nodeSupported: nodeMajor >= 22,
+    },
     ripgrepStatus,
   }
 

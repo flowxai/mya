@@ -17,6 +17,7 @@
     "build:dev": "bun run ./scripts/build.ts --dev",
     "build:dev:full": "bun run ./scripts/build.ts --dev --feature-set=dev-full",
     "compile": "bun run ./scripts/build.ts --compile",
+    "package:release": "./scripts/package-release.sh",
     "dev": "bun run ./src/entrypoints/cli.tsx",
     "connect:install": "npm --prefix ./connect install",
     "connect:check": "npm --prefix ./connect run check",

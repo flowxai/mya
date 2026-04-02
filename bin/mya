@@ -5,6 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_PATH="${SCRIPT_DIR}/../cli"
 CONNECT_ENTRY="${SCRIPT_DIR}/../connect/bin/mya-connect.js"
 CONNECT_NODE_MODULES="${SCRIPT_DIR}/../connect/node_modules"
+INSTALLER_PATH="${SCRIPT_DIR}/../install.sh"
+
+run_installer() {
+  if [[ ! -f "${INSTALLER_PATH}" ]]; then
+    echo "[mya] installer is missing at ${INSTALLER_PATH}" >&2
+    exit 1
+  fi
+
+  exec "${INSTALLER_PATH}" "$@"
+}
 
 if [[ "${1:-}" == "connect" ]]; then
   shift
@@ -27,6 +37,16 @@ if [[ "${1:-}" == "connect" ]]; then
 
   export MYA_CONNECT_MAIN_COMMAND="${MYA_CONNECT_MAIN_COMMAND:-${CLI_PATH}}"
   exec node "${CONNECT_ENTRY}" "$@"
+fi
+
+if [[ "${1:-}" == "update" || "${1:-}" == "self-update" ]]; then
+  shift
+  run_installer --upgrade --release "$@"
+fi
+
+if [[ "${1:-}" == "install" ]]; then
+  shift
+  run_installer "$@"
 fi
 
 exec "${CLI_PATH}" "$@"

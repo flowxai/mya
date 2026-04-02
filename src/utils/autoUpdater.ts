@@ -27,8 +27,8 @@ import {
 } from './shellConfig.js'
 import { jsonParse } from './slowOperations.js'
 
-const GCS_BUCKET_URL =
-  'https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases'
+const GITHUB_RELEASES_API_URL =
+  'https://api.github.com/repos/flowxai/mya/releases'
 
 class AutoUpdaterError extends ClaudeError {}
 
@@ -61,7 +61,7 @@ export type MaxVersionConfig = {
  *
  * Versioning approach:
  * 1. For version requirements/compatibility (assertMinVersion), we use semver comparison that ignores build metadata
- * 2. For updates ('claude update'), we use exact string comparison to detect any change, including SHA
+ * 2. For updates ('mya update'), we use exact string comparison to detect any change, including SHA
  *    - This ensures users always get the latest build, even when only the SHA changes
  *    - The UI clearly shows both versions including build metadata
  *
@@ -83,11 +83,11 @@ export async function assertMinVersion(): Promise<void> {
     ) {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.error(`
-It looks like your version of Claude Code (${MACRO.VERSION}) needs an update.
+It looks like your version of mya (${MACRO.VERSION}) needs an update.
 A newer version (${versionConfig.minVersion} or higher) is required to continue.
 
 To update, please run:
-    claude update
+    mya update
 
 This will ensure you have access to the latest features and improvements.
 `)
@@ -378,27 +378,46 @@ export async function getNpmDistTags(): Promise<NpmDistTags> {
 }
 
 /**
- * Get the latest version from GCS bucket for a given release channel.
- * This is used by installations that don't have npm (e.g. package manager installs).
+ * Get the latest version from GitHub releases.
+ * This is used by standalone release builds that are not tracking npm dist-tags.
  */
 export async function getLatestVersionFromGcs(
   channel: ReleaseChannel,
 ): Promise<string | null> {
   try {
-    const response = await axios.get(`${GCS_BUCKET_URL}/${channel}`, {
+    const response = await axios.get(GITHUB_RELEASES_API_URL, {
       timeout: 5000,
-      responseType: 'text',
+      responseType: 'json',
+      headers: {
+        Accept: 'application/vnd.github+json',
+      },
     })
-    return response.data.trim()
+    const releases = Array.isArray(response.data) ? response.data : []
+    const normalized = releases
+      .filter(
+        (release): release is { tag_name: string; prerelease?: boolean } =>
+          Boolean(release) &&
+          typeof release === 'object' &&
+          typeof release.tag_name === 'string',
+      )
+      .map(release => ({
+        version: release.tag_name.replace(/^v/, ''),
+        prerelease: Boolean(release.prerelease),
+      }))
+
+    const preferred = normalized.find(release =>
+      channel === 'latest' ? true : !release.prerelease,
+    )
+    return preferred?.version ?? null
   } catch (error) {
-    logForDebugging(`Failed to fetch ${channel} from GCS: ${error}`)
+    logForDebugging(`Failed to fetch ${channel} from GitHub releases: ${error}`)
     return null
   }
 }
 
 /**
- * Get available versions from GCS bucket (for native installations).
- * Fetches both latest and stable channel pointers.
+ * Get available versions from GitHub releases (for standalone release installs).
+ * Fetches the newest release overall as "latest" and newest non-prerelease as "stable".
  */
 export async function getGcsDistTags(): Promise<NpmDistTags> {
   const [latest, stable] = await Promise.all([
@@ -482,13 +501,13 @@ export async function installGlobalPackage(
       console.error(`
 Error: Windows NPM detected in WSL
 
-You're running Claude Code in WSL but using the Windows NPM installation from /mnt/c/.
+You're running mya in WSL but using the Windows NPM installation from /mnt/c/.
 This configuration is not supported for updates.
 
 To fix this issue:
   1. Install Node.js within your Linux distribution: e.g. sudo apt install nodejs npm
   2. Make sure Linux NPM is in your PATH before the Windows version
-  3. Try updating again with 'claude update'
+  3. Try updating again with 'mya update'
 `)
       return 'install_failed'
     }
@@ -513,7 +532,7 @@ To fix this issue:
     )
     if (installResult.code !== 0) {
       const error = new AutoUpdaterError(
-        `Failed to install new version of claude: ${installResult.stdout} ${installResult.stderr}`,
+        `Failed to install new version of mya: ${installResult.stdout} ${installResult.stderr}`,
       )
       logError(error)
       return 'install_failed'
@@ -533,7 +552,7 @@ To fix this issue:
 }
 
 /**
- * Remove claude aliases from shell configuration files
+ * Remove legacy claude aliases from shell configuration files
  * This helps clean up old installation methods when switching to native or npm global
  */
 async function removeClaudeAliasesFromShellConfigs(): Promise<void> {
