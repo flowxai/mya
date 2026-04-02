@@ -19,7 +19,7 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: linux-x64
-          - runner: macos-13
+          - runner: macos-15-intel
             target: macos-x64
           - runner: macos-14
             target: macos-arm64
@@ -63,3 +63,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/*.tar.gz
+          overwrite_files: true
