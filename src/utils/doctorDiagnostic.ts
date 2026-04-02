@@ -77,6 +77,24 @@ export type DiagnosticInfo = {
     nodeVersion: string | null
     nodeSupported: boolean
   }
+  hub: {
+    enabled: boolean
+    profilesRoot: string
+    profileCount: number
+    activeRuntimeCount: number
+    activeRuntimes: Array<{
+      profileId: string
+      channelType: string
+      accountId: string
+      state: string
+    }>
+    taskCount: number
+    policyCount: number
+    recentAuditCount: number
+    connectorReady: boolean
+    auditLogPath: string
+    policyStorePath: string
+  }
   ripgrepStatus: {
     working: boolean
     mode: 'system' | 'builtin' | 'embedded'
@@ -223,7 +241,7 @@ async function detectMultipleInstallations(): Promise<
   const installations: Array<{ type: string; path: string }> = []
 
   // Check for local installation
-  const localPath = join(homedir(), '.my_agent', 'local')
+  const localPath = join(homedir(), '.mya', 'local')
   if (await localInstallationExists()) {
     installations.push({ type: 'npm-local', path: localPath })
   }
@@ -487,13 +505,13 @@ async function detectConfigurationIssues(
         // Alias exists but points to invalid target
         warnings.push({
           issue: 'Local installation not accessible',
-          fix: `Alias exists but points to invalid target: ${existingAlias}. Update alias: alias mya="~/.my_agent/local/mya"`,
+          fix: `Alias exists but points to invalid target: ${existingAlias}. Update alias: alias mya="~/.mya/local/mya"`,
         })
       } else {
         // No alias exists and not in PATH
         warnings.push({
           issue: 'Local installation not accessible',
-          fix: 'Create alias: alias mya="~/.my_agent/local/mya"',
+          fix: 'Create alias: alias mya="~/.mya/local/mya"',
         })
       }
     }
@@ -527,8 +545,8 @@ function getConnectPaths(installationPath: string, invokedBinary: string): {
     if (root.endsWith('/bin')) {
       const base = dirname(root)
       return {
-        entryPath: join(base, 'connect', 'bin', 'mya-connect.js'),
-        dependenciesPath: join(base, 'connect', 'node_modules'),
+        entryPath: join(base, 'runtime', 'connect', 'bin', 'mya-connect.js'),
+        dependenciesPath: join(base, 'runtime', 'connect', 'node_modules'),
       }
     }
   }
@@ -538,8 +556,161 @@ function getConnectPaths(installationPath: string, invokedBinary: string): {
       ? dirname(installationPath)
       : getCwd()
   return {
-    entryPath: join(fallbackRoot, 'connect', 'bin', 'mya-connect.js'),
-    dependenciesPath: join(fallbackRoot, 'connect', 'node_modules'),
+    entryPath: join(fallbackRoot, 'runtime', 'connect', 'bin', 'mya-connect.js'),
+    dependenciesPath: join(fallbackRoot, 'runtime', 'connect', 'node_modules'),
+  }
+}
+
+function getHubPaths() {
+  const hubRoot = join(homedir(), '.mya', 'connect', 'hub')
+  return {
+    hubRoot,
+    profilesRoot: join(hubRoot, 'profiles'),
+    runtimeStatusPath: join(hubRoot, 'runtime-status.json'),
+    tasksPath: join(hubRoot, 'tasks', 'registry.json'),
+    policyStorePath: join(hubRoot, 'policies.json'),
+    auditLogPath: join(hubRoot, 'audit.log'),
+  }
+}
+
+async function loadHubDiagnostic(
+  connectReady: boolean,
+): Promise<DiagnosticInfo['hub']> {
+  const fs = getFsImplementation()
+  const hubPaths = getHubPaths()
+
+  const profileCount = await countHubProfiles(fs, hubPaths.profilesRoot)
+  const activeRuntimes = await readHubRuntimeEntries(fs, hubPaths.runtimeStatusPath)
+  const taskCount = await countHubTasks(fs, hubPaths.tasksPath)
+  const policyCount = await countHubPolicies(fs, hubPaths.policyStorePath)
+  const recentAuditCount = await countHubAuditEvents(fs, hubPaths.auditLogPath)
+
+  return {
+    enabled:
+      profileCount > 0 ||
+      activeRuntimes.length > 0 ||
+      taskCount > 0 ||
+      policyCount > 0 ||
+      recentAuditCount > 0,
+    profilesRoot: hubPaths.profilesRoot,
+    profileCount,
+    activeRuntimeCount: activeRuntimes.length,
+    activeRuntimes,
+    taskCount,
+    policyCount,
+    recentAuditCount,
+    connectorReady: connectReady,
+    auditLogPath: hubPaths.auditLogPath,
+    policyStorePath: hubPaths.policyStorePath,
+  }
+}
+
+async function countHubProfiles(
+  fs: ReturnType<typeof getFsImplementation>,
+  profilesRoot: string,
+): Promise<number> {
+  try {
+    const entries = await fs.readdir(profilesRoot)
+    return entries.filter(entry => entry.isDirectory()).length
+  } catch {
+    return 0
+  }
+}
+
+async function readHubRuntimeEntries(
+  fs: ReturnType<typeof getFsImplementation>,
+  runtimeStatusPath: string,
+): Promise<DiagnosticInfo['hub']['activeRuntimes']> {
+  try {
+    const raw = await fs.readFile(runtimeStatusPath, { encoding: 'utf-8' })
+    const parsed: unknown = jsonParse(raw)
+    if (!parsed || typeof parsed !== 'object') {
+      return []
+    }
+
+    const profiles = (parsed as { profiles?: unknown }).profiles
+    if (!Array.isArray(profiles)) {
+      return []
+    }
+
+    return profiles
+      .map(profile => {
+        if (!profile || typeof profile !== 'object') {
+          return null
+        }
+
+        const entry = profile as Record<string, unknown>
+        const profileId =
+          typeof entry.profileId === 'string' ? entry.profileId.trim() : ''
+        const channelType =
+          typeof entry.channelType === 'string' ? entry.channelType.trim() : ''
+        const accountId =
+          typeof entry.accountId === 'string' ? entry.accountId.trim() : ''
+        const state = typeof entry.state === 'string' ? entry.state.trim() : ''
+
+        if (!profileId && !channelType && !accountId && !state) {
+          return null
+        }
+
+        return {
+          profileId,
+          channelType,
+          accountId,
+          state,
+        }
+      })
+      .filter(
+        (
+          value,
+        ): value is DiagnosticInfo['hub']['activeRuntimes'][number] =>
+          value !== null,
+      )
+  } catch {
+    return []
+  }
+}
+
+async function countHubTasks(
+  fs: ReturnType<typeof getFsImplementation>,
+  tasksPath: string,
+): Promise<number> {
+  try {
+    const raw = await fs.readFile(tasksPath, { encoding: 'utf-8' })
+    const parsed: unknown = jsonParse(raw)
+    return Array.isArray(parsed) ? parsed.length : 0
+  } catch {
+    return 0
+  }
+}
+
+async function countHubPolicies(
+  fs: ReturnType<typeof getFsImplementation>,
+  policyStorePath: string,
+): Promise<number> {
+  try {
+    const raw = await fs.readFile(policyStorePath, { encoding: 'utf-8' })
+    const parsed: unknown = jsonParse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return 0
+    }
+    return Object.keys(parsed).length
+  } catch {
+    return 0
+  }
+}
+
+async function countHubAuditEvents(
+  fs: ReturnType<typeof getFsImplementation>,
+  auditLogPath: string,
+): Promise<number> {
+  try {
+    const raw = await fs.readFile(auditLogPath, { encoding: 'utf-8' })
+    return raw
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean).length
+  } catch {
+    return 0
   }
 }
 
@@ -719,6 +890,9 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
       nodeVersion,
       nodeSupported: nodeMajor >= 22,
     },
+    hub: await loadHubDiagnostic(
+      connectBundled && connectDependenciesInstalled && nodeMajor >= 22,
+    ),
     ripgrepStatus,
   }
 

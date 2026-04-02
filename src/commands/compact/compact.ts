@@ -28,6 +28,7 @@ import { getMessagesAfterCompactBoundary } from '../../utils/messages.js'
 import { getUpgradeMessage } from '../../utils/model/contextWindowUpgradeCheck.js'
 import {
   buildEffectiveSystemPrompt,
+  getBotIdentityPrompt,
   type SystemPrompt,
 } from '../../utils/systemPrompt.js'
 
@@ -258,20 +259,24 @@ async function getCacheSharingParams(
   forkContextMessages: Message[]
 }> {
   const appState = context.getAppState()
-  const defaultSysPrompt = await getSystemPrompt(
-    context.options.tools,
-    context.options.mainLoopModel,
-    Array.from(
-      appState.toolPermissionContext.additionalWorkingDirectories.keys(),
+  const [defaultSysPrompt, botIdentityPrompt] = await Promise.all([
+    getSystemPrompt(
+      context.options.tools,
+      context.options.mainLoopModel,
+      Array.from(
+        appState.toolPermissionContext.additionalWorkingDirectories.keys(),
+      ),
+      context.options.mcpClients,
     ),
-    context.options.mcpClients,
-  )
+    getBotIdentityPrompt(appState.toolPermissionContext.mode),
+  ])
   const systemPrompt = buildEffectiveSystemPrompt({
     mainThreadAgentDefinition: undefined,
     toolUseContext: context,
     customSystemPrompt: context.options.customSystemPrompt,
     defaultSystemPrompt: defaultSysPrompt,
     appendSystemPrompt: context.options.appendSystemPrompt,
+    botIdentityPrompt,
   })
   const [userContext, systemContext] = await Promise.all([
     getUserContext(),

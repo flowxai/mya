@@ -23,11 +23,11 @@ if [[ ! -f "$CLI_SOURCE" ]]; then
   exit 1
 fi
 
-CONNECT_DIR="$ROOT_DIR/connect"
+CONNECT_DIR="$ROOT_DIR/runtime/connect"
 CONNECT_NODE_MODULES="$CONNECT_DIR/node_modules"
 if [[ ! -d "$CONNECT_NODE_MODULES" ]]; then
   echo "[package-release] missing bundled connect dependencies at $CONNECT_NODE_MODULES" >&2
-  echo "[package-release] run 'npm --prefix ./connect ci --omit=dev' first" >&2
+  echo "[package-release] run 'npm --prefix ./runtime/connect ci --omit=dev' first" >&2
   exit 1
 fi
 
@@ -41,7 +41,7 @@ PACKAGE_DIR="$STAGE_DIR/mya"
 ARCHIVE_PATH="$OUTPUT_DIR/${ARCHIVE_BASENAME}.tar.gz"
 
 rm -rf "$STAGE_DIR"
-mkdir -p "$PACKAGE_DIR" "$PACKAGE_DIR/bin" "$PACKAGE_DIR/connect"
+mkdir -p "$PACKAGE_DIR" "$PACKAGE_DIR/bin" "$PACKAGE_DIR/runtime/connect"
 
 cp "$CLI_SOURCE" "$PACKAGE_DIR/cli"
 chmod 755 "$PACKAGE_DIR/cli"
@@ -51,13 +51,15 @@ cp "$ROOT_DIR/install.sh" "$PACKAGE_DIR/install.sh"
 chmod 755 "$PACKAGE_DIR/install.sh"
 cp "$ROOT_DIR/README.md" "$PACKAGE_DIR/README.md"
 
-cp "$CONNECT_DIR/package.json" "$PACKAGE_DIR/connect/package.json"
-cp "$CONNECT_DIR/package-lock.json" "$PACKAGE_DIR/connect/package-lock.json"
-cp "$CONNECT_DIR/README.md" "$PACKAGE_DIR/connect/README.md"
-cp "$CONNECT_DIR/Usage.md" "$PACKAGE_DIR/connect/Usage.md"
-cp -R "$CONNECT_DIR/bin" "$PACKAGE_DIR/connect/bin"
-cp -R "$CONNECT_DIR/src" "$PACKAGE_DIR/connect/src"
-cp -R "$CONNECT_NODE_MODULES" "$PACKAGE_DIR/connect/node_modules"
+cp "$CONNECT_DIR/package.json" "$PACKAGE_DIR/runtime/connect/package.json"
+cp "$CONNECT_DIR/package-lock.json" "$PACKAGE_DIR/runtime/connect/package-lock.json"
+cp "$CONNECT_DIR/.env.hub.example" "$PACKAGE_DIR/runtime/connect/.env.hub.example"
+cp "$CONNECT_DIR/README.md" "$PACKAGE_DIR/runtime/connect/README.md"
+cp "$CONNECT_DIR/Usage.md" "$PACKAGE_DIR/runtime/connect/Usage.md"
+cp -R "$CONNECT_DIR/bin" "$PACKAGE_DIR/runtime/connect/bin"
+cp -R "$CONNECT_DIR/examples" "$PACKAGE_DIR/runtime/connect/examples"
+cp -R "$CONNECT_DIR/src" "$PACKAGE_DIR/runtime/connect/src"
+cp -R "$CONNECT_NODE_MODULES" "$PACKAGE_DIR/runtime/connect/node_modules"
 
 tar -C "$STAGE_DIR" -czf "$ARCHIVE_PATH" mya
 

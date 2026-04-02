@@ -169,7 +169,7 @@ export function Doctor({ onDone }: Props) {
 
     ;(async () => {
       const userAgentsDir = join(getClaudeConfigHomeDir(), 'agents')
-      const projectAgentsDir = join(getOriginalCwd(), '.my_agent', 'agents')
+      const projectAgentsDir = join(getOriginalCwd(), '.mya', 'agents')
       const { activeAgents, allAgents, failedFiles } = agentDefinitions
 
       const [userDirExists, projectDirExists] = await Promise.all([
@@ -259,6 +259,9 @@ export function Doctor({ onDone }: Props) {
       ? `ready (${diagnostic.connect.nodeVersion ?? 'node missing'})`
       : 'bundled, dependencies missing'
     : 'not bundled'
+  const hubConnectorStatus = diagnostic.hub.connectorReady
+    ? 'ready'
+    : 'not ready'
 
   return (
     <Pane>
@@ -348,6 +351,26 @@ export function Doctor({ onDone }: Props) {
         <Suspense fallback={null}>
           <DistTagsDisplay promise={distTagsPromise} />
         </Suspense>
+      </Box>
+
+      <Box flexDirection="column">
+        <Text bold>Hub</Text>
+        <Text>└ Enabled: {diagnostic.hub.enabled ? 'Yes' : 'No'}</Text>
+        <Text>└ Profiles: {diagnostic.hub.profileCount}</Text>
+        <Text>└ Active runtimes: {diagnostic.hub.activeRuntimeCount}</Text>
+        <Text>└ Tasks: {diagnostic.hub.taskCount}</Text>
+        <Text>└ Policies: {diagnostic.hub.policyCount}</Text>
+        <Text>└ Recent audit events: {diagnostic.hub.recentAuditCount}</Text>
+        <Text>└ Connector readiness: {hubConnectorStatus}</Text>
+        <Text dimColor>  └ Profiles dir: {diagnostic.hub.profilesRoot}</Text>
+        {diagnostic.hub.activeRuntimes.map((runtime, index) => (
+          <Text key={index} dimColor>
+            {'  '}└ {runtime.profileId || '(unknown)'}:{runtime.channelType || '(channel)'}:
+            {runtime.accountId || '(account)'} → {runtime.state || '(unknown)'}
+          </Text>
+        ))}
+        <Text dimColor>  └ Policy store: {diagnostic.hub.policyStorePath}</Text>
+        <Text dimColor>  └ Audit log: {diagnostic.hub.auditLogPath}</Text>
       </Box>
 
       <SandboxDoctorSection />

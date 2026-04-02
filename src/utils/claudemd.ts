@@ -1455,7 +1455,7 @@ export function isMemoryFilePath(filePath: string): boolean {
   // .md files in .claude/rules/ directories
   if (
     name.endsWith('.md') &&
-    (filePath.includes(`${sep}.my_agent${sep}rules${sep}`) ||
+    (filePath.includes(`${sep}.mya${sep}rules${sep}`) ||
       filePath.includes(`${sep}.claude${sep}rules${sep}`))
   ) {
     return true

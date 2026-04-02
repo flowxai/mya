@@ -1,0 +1,47 @@
+{
+  "profileId": "review-bot",
+  "name": "Review Bot",
+  "description": "Code review bot for pull requests and design feedback.",
+  "defaultModel": "sonnet",
+  "defaultEffort": "high",
+  "permissionMode": "plan",
+  "workspaceAllowlist": [
+    "/absolute/path/to/repo"
+  ],
+  "workers": [
+    "reviewer",
+    "researcher"
+  ],
+  "memoryPolicy": {
+    "scope": "profile+workspace",
+    "inheritanceMode": "inherit"
+  },
+  "wakePolicy": {
+    "schedules": [
+      {
+        "profileId": "review-bot",
+        "kind": "event_file",
+        "eventFile": "/Users/your-name/.mya/connect/hub/events/review-bot.jsonl"
+      }
+    ],
+    "events": [
+      "pull_request_opened",
+      "pull_request_updated"
+    ]
+  },
+  "channels": [
+    {
+      "type": "feishu",
+      "appId": "cli_review_app",
+      "appSecret": "replace-me",
+      "defaultWorkspaceRoot": "/absolute/path/to/repo",
+      "defaultWorkspaceId": "review",
+      "workspaceAllowlist": [
+        "/absolute/path/to/repo"
+      ],
+      "permissionMode": "plan",
+      "enableGroupAtMessages": true,
+      "replyInThread": true
+    }
+  ]
+}

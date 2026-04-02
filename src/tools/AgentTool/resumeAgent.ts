@@ -22,7 +22,10 @@ import {
   getAgentTranscript,
   readAgentMetadata,
 } from '../../utils/sessionStorage.js'
-import { buildEffectiveSystemPrompt } from '../../utils/systemPrompt.js'
+import {
+  buildEffectiveSystemPrompt,
+  getBotIdentityPrompt,
+} from '../../utils/systemPrompt.js'
 import type { SystemPrompt } from '../../utils/systemPromptType.js'
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js'
 import { getParentSessionId } from '../../utils/teammate.js'
@@ -126,18 +129,22 @@ export async function resumeAgentBackground({
       const additionalWorkingDirectories = Array.from(
         appState.toolPermissionContext.additionalWorkingDirectories.keys(),
       )
-      const defaultSystemPrompt = await getSystemPrompt(
-        toolUseContext.options.tools,
-        toolUseContext.options.mainLoopModel,
-        additionalWorkingDirectories,
-        toolUseContext.options.mcpClients,
-      )
+      const [defaultSystemPrompt, botIdentityPrompt] = await Promise.all([
+        getSystemPrompt(
+          toolUseContext.options.tools,
+          toolUseContext.options.mainLoopModel,
+          additionalWorkingDirectories,
+          toolUseContext.options.mcpClients,
+        ),
+        getBotIdentityPrompt(appState.toolPermissionContext.mode),
+      ])
       forkParentSystemPrompt = buildEffectiveSystemPrompt({
         mainThreadAgentDefinition,
         toolUseContext,
         customSystemPrompt: toolUseContext.options.customSystemPrompt,
         defaultSystemPrompt,
         appendSystemPrompt: toolUseContext.options.appendSystemPrompt,
+        botIdentityPrompt,
       })
     }
     if (!forkParentSystemPrompt) {

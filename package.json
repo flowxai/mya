@@ -19,9 +19,9 @@
     "compile": "bun run ./scripts/build.ts --compile",
     "package:release": "./scripts/package-release.sh",
     "dev": "bun run ./src/entrypoints/cli.tsx",
-    "connect:install": "npm --prefix ./connect install",
-    "connect:check": "npm --prefix ./connect run check",
-    "connect:test": "npm --prefix ./connect test"
+    "connect:install": "npm --prefix ./runtime/connect install",
+    "connect:check": "npm --prefix ./runtime/connect run check",
+    "connect:test": "npm --prefix ./runtime/connect test"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",

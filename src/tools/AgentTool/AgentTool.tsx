@@ -31,7 +31,7 @@ import { filterDeniedAgents, getDenyRuleForAgent } from '../../utils/permissions
 import { enqueueSdkEvent } from '../../utils/sdkEventQueue.js';
 import { writeAgentMetadata } from '../../utils/sessionStorage.js';
 import { sleep } from '../../utils/sleep.js';
-import { buildEffectiveSystemPrompt } from '../../utils/systemPrompt.js';
+import { buildEffectiveSystemPrompt, getBotIdentityPrompt } from '../../utils/systemPrompt.js';
 import { asSystemPrompt } from '../../utils/systemPromptType.js';
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js';
 import { getParentSessionId, isTeammate } from '../../utils/teammate.js';
@@ -500,13 +500,14 @@ export const AgentTool = buildTool({
         // GrowthBook state changed between parent turn-start and fork spawn.
         const mainThreadAgentDefinition = appState.agent ? appState.agentDefinitions.activeAgents.find(a => a.agentType === appState.agent) : undefined;
         const additionalWorkingDirectories = Array.from(appState.toolPermissionContext.additionalWorkingDirectories.keys());
-        const defaultSystemPrompt = await getSystemPrompt(toolUseContext.options.tools, toolUseContext.options.mainLoopModel, additionalWorkingDirectories, toolUseContext.options.mcpClients);
+        const [defaultSystemPrompt, botIdentityPrompt] = await Promise.all([getSystemPrompt(toolUseContext.options.tools, toolUseContext.options.mainLoopModel, additionalWorkingDirectories, toolUseContext.options.mcpClients), getBotIdentityPrompt(appState.toolPermissionContext.mode)]);
         forkParentSystemPrompt = buildEffectiveSystemPrompt({
           mainThreadAgentDefinition,
           toolUseContext,
           customSystemPrompt: toolUseContext.options.customSystemPrompt,
           defaultSystemPrompt,
-          appendSystemPrompt: toolUseContext.options.appendSystemPrompt
+          appendSystemPrompt: toolUseContext.options.appendSystemPrompt,
+          botIdentityPrompt
         });
       }
       promptMessages = buildForkedMessages(prompt, assistantMessage);

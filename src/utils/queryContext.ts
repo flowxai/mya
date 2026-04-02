@@ -21,6 +21,7 @@ import { createAbortController } from './abortController.js'
 import type { FileStateCache } from './fileStateCache.js'
 import type { CacheSafeParams } from './forkedAgent.js'
 import { getMainLoopModel } from './model/model.js'
+import { getBotIdentityPrompt } from './systemPrompt.js'
 import { asSystemPrompt } from './systemPromptType.js'
 import {
   shouldEnableThinkingByDefault,
@@ -123,11 +124,15 @@ export async function buildSideQuestionFallbackParams({
       mcpClients,
       customSystemPrompt,
     })
+  const botIdentityPrompt = await getBotIdentityPrompt(
+    appState.toolPermissionContext.mode,
+  )
 
   const systemPrompt = asSystemPrompt([
     ...(customSystemPrompt !== undefined
       ? [customSystemPrompt]
       : defaultSystemPrompt),
+    ...(botIdentityPrompt ? [botIdentityPrompt] : []),
     ...(appendSystemPrompt ? [appendSystemPrompt] : []),
   ])
 

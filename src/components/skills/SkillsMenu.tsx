@@ -101,7 +101,7 @@ export function SkillsMenu(t0) {
   if (skills.length === 0) {
     let t3;
     if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <Text dimColor={true}>Create skills in .my_agent/skills/ or ~/.my_agent/skills/</Text>;
+      t3 = <Text dimColor={true}>Create skills in .mya/skills/ or ~/.mya/skills/</Text>;
       $[6] = t3;
     } else {
       t3 = $[6];

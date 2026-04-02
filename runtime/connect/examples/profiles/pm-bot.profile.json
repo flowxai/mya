@@ -1,0 +1,49 @@
+{
+  "profileId": "pm-bot",
+  "name": "PM Bot",
+  "description": "Product/project coordination bot for follow-ups, summaries, and cross-team task tracking.",
+  "defaultModel": "sonnet",
+  "defaultEffort": "medium",
+  "permissionMode": "plan",
+  "workspaceAllowlist": [
+    "/workspace/product",
+    "/workspace/roadmap"
+  ],
+  "workers": [
+    "researcher"
+  ],
+  "memoryPolicy": {
+    "scope": "profile+workspace",
+    "inheritanceMode": "profile"
+  },
+  "wakePolicy": {
+    "schedules": [
+      {
+        "profileId": "pm-bot",
+        "kind": "schedule",
+        "cron": "0 1 * * 1",
+        "workspaceRoot": "/workspace/product"
+      }
+    ],
+    "events": [
+      "roadmap_updated",
+      "spec_requested"
+    ]
+  },
+  "channels": [
+    {
+      "type": "feishu",
+      "appId": "cli_pm_app",
+      "appSecret": "replace-me",
+      "defaultWorkspaceRoot": "/workspace/product",
+      "defaultWorkspaceId": "product",
+      "workspaceAllowlist": [
+        "/workspace/product",
+        "/workspace/roadmap"
+      ],
+      "permissionMode": "plan",
+      "enableGroupAtMessages": true,
+      "replyInThread": false
+    }
+  ]
+}

@@ -230,6 +230,15 @@ export function getAskRules(context: ToolPermissionContext): PermissionRule[] {
   )
 }
 
+function isBypassPermissionsActive(
+  context: ToolPermissionContext,
+): boolean {
+  return (
+    context.mode === 'bypassPermissions' ||
+    (context.mode === 'plan' && context.isBypassPermissionsModeAvailable)
+  )
+}
+
 /**
  * Check if the entire tool matches a rule
  * For example, this matches "Bash" but not "Bash(prefix:*)" for BashTool
@@ -1141,9 +1150,9 @@ export async function checkRuleBasedPermissions(
     return toolPermissionResult
   }
 
-  // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) are
-  // bypass-immune — they must prompt even when a PreToolUse hook returned
-  // allow. checkPathSafetyForAutoEdit returns {type:'safetyCheck'} for these.
+  // 1g. Safety checks still require a second canUseTool pass after hook
+  // approval, but an explicit bypass permissions session will resolve that
+  // downstream without prompting.
   if (
     toolPermissionResult?.behavior === 'ask' &&
     toolPermissionResult.decisionReason?.type === 'safetyCheck'
@@ -1249,12 +1258,13 @@ async function hasPermissionsToUseToolInner(
     return toolPermissionResult
   }
 
-  // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) are
-  // bypass-immune — they must prompt even in bypassPermissions mode.
-  // checkPathSafetyForAutoEdit returns {type:'safetyCheck'} for these paths.
+  // 1g. Safety checks (e.g. .git/, .mya/, .vscode/, shell configs) still
+  // prompt in normal modes, but an explicit dangerously-skip-permissions
+  // session must stay zero-prompt.
   if (
     toolPermissionResult?.behavior === 'ask' &&
-    toolPermissionResult.decisionReason?.type === 'safetyCheck'
+    toolPermissionResult.decisionReason?.type === 'safetyCheck' &&
+    !isBypassPermissionsActive(appState.toolPermissionContext)
   ) {
     return toolPermissionResult
   }
@@ -1265,10 +1275,9 @@ async function hasPermissionsToUseToolInner(
   // Check if permissions should be bypassed:
   // - Direct bypassPermissions mode
   // - Plan mode when the user originally started with bypass mode (isBypassPermissionsModeAvailable)
-  const shouldBypassPermissions =
-    appState.toolPermissionContext.mode === 'bypassPermissions' ||
-    (appState.toolPermissionContext.mode === 'plan' &&
-      appState.toolPermissionContext.isBypassPermissionsModeAvailable)
+  const shouldBypassPermissions = isBypassPermissionsActive(
+    appState.toolPermissionContext,
+  )
   if (shouldBypassPermissions) {
     return {
       behavior: 'allow',

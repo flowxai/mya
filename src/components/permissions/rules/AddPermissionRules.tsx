@@ -32,7 +32,7 @@ export function optionForPermissionSaveDestination(saveDestination: EditableSett
     case 'userSettings':
       return {
         label: 'User settings',
-        description: `Saved in at ~/.my_agent/settings.json`,
+        description: `Saved in at ~/.mya/settings.json`,
         value: saveDestination
       };
   }

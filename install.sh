@@ -13,6 +13,7 @@ REPO_SLUG="${MYA_REPO_SLUG:-flowxai/mya}"
 REPO_URL="${MYA_REPO_URL:-https://github.com/${REPO_SLUG}.git}"
 INSTALL_DIR="${MYA_INSTALL_DIR:-$HOME/mya}"
 LINK_DIR="${MYA_LINK_DIR:-$HOME/.local/bin}"
+CONNECT_CONFIG_DIR="${MYA_CONNECT_CONFIG_DIR:-${MYA_CONFIG_DIR:-$HOME/.mya/connect}}"
 TARGET_VERSION="latest"
 INSTALL_MODE="auto"
 UPGRADE_ONLY=0
@@ -29,6 +30,17 @@ info()  { printf "${CYAN}[*]${RESET} %s\n" "$*"; }
 ok()    { printf "${GREEN}[+]${RESET} %s\n" "$*"; }
 warn()  { printf "${YELLOW}[!]${RESET} %s\n" "$*"; }
 fail()  { printf "${RED}[x]${RESET} %s\n" "$*"; exit 1; }
+
+connect_install_dir() {
+  local base_dir="$1"
+
+  if [[ -f "$base_dir/runtime/connect/package.json" ]]; then
+    printf '%s\n' "$base_dir/runtime/connect"
+    return
+  fi
+
+  printf '%s\n' "$base_dir/runtime/connect"
+}
 
 header() {
   echo ""
@@ -176,14 +188,14 @@ check_git() {
 
 check_node() {
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    warn "Node.js + npm not found. Base mya will work, but \`mya connect\` will stay disabled."
+    warn "Node.js + npm not found. Base mya will work, but wechat / feishu / bot service will stay disabled."
     return
   fi
 
   local major
   major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
   if [[ "$major" -lt "$NODE_MIN_MAJOR" ]]; then
-    warn "Node.js $(node --version) found, but v${NODE_MIN_MAJOR}+ is required for \`mya connect\`."
+    warn "Node.js $(node --version) found, but v${NODE_MIN_MAJOR}+ is required for mya wechat / mya feishu / mya serve."
     return
   fi
 
@@ -196,6 +208,41 @@ check_node() {
 ensure_parent_dir() {
   mkdir -p "$(dirname "$INSTALL_DIR")"
   mkdir -p "$LINK_DIR"
+  mkdir -p "$CONNECT_CONFIG_DIR"
+}
+
+seed_hub_templates() {
+  local connect_dir source_env_example source_examples_dir target_env_example target_examples_dir
+
+  connect_dir="$(connect_install_dir "$INSTALL_DIR")"
+
+  source_env_example="$connect_dir/.env.hub.example"
+  source_examples_dir="$connect_dir/examples/profiles"
+  target_env_example="$CONNECT_CONFIG_DIR/.env.hub.example"
+  target_examples_dir="$CONNECT_CONFIG_DIR/examples/profiles"
+
+  mkdir -p "$target_examples_dir"
+
+  if [[ -f "$source_env_example" && ! -f "$target_env_example" ]]; then
+    cp "$source_env_example" "$target_env_example"
+    ok "Installed hub env template: $target_env_example"
+  fi
+
+  if [[ -d "$source_examples_dir" ]]; then
+    local copied_count=0
+    local profile_file target_file
+    while IFS= read -r -d '' profile_file; do
+      target_file="$target_examples_dir/$(basename "$profile_file")"
+      if [[ ! -f "$target_file" ]]; then
+        cp "$profile_file" "$target_file"
+        copied_count=$((copied_count + 1))
+      fi
+    done < <(find "$source_examples_dir" -type f -name '*.json' -print0)
+
+    if [[ "$copied_count" -gt 0 ]]; then
+      ok "Installed hub profile templates: $target_examples_dir"
+    fi
+  fi
 }
 
 clone_or_refresh_repo() {
@@ -231,6 +278,8 @@ clone_or_refresh_repo() {
 }
 
 install_core_from_source() {
+  local connect_dir
+
   check_git
   check_bun
   clone_or_refresh_repo
@@ -239,9 +288,11 @@ install_core_from_source() {
   (cd "$INSTALL_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
   ok "Core dependencies installed"
 
-  if [[ "$CONNECT_SUPPORTED" -eq 1 && -f "$INSTALL_DIR/connect/package.json" ]]; then
+  connect_dir="$(connect_install_dir "$INSTALL_DIR")"
+
+  if [[ "$CONNECT_SUPPORTED" -eq 1 && -f "$connect_dir/package.json" ]]; then
     info "Installing bundled connector dependencies..."
-    npm --prefix "$INSTALL_DIR/connect" install
+    npm --prefix "$connect_dir" install
     ok "Bundled connector dependencies installed"
   else
     warn "Skipping bundled connector dependencies."
@@ -294,14 +345,17 @@ extract_release_archive() {
 }
 
 install_from_release() {
+  local connect_dir
+
   resolve_release_tag
   extract_release_archive
+  connect_dir="$(connect_install_dir "$INSTALL_DIR")"
 
-  if [[ -d "$INSTALL_DIR/connect/node_modules" ]]; then
+  if [[ -d "$connect_dir/node_modules" ]]; then
     CONNECT_READY="$CONNECT_SUPPORTED"
-  elif [[ "$CONNECT_SUPPORTED" -eq 1 && -f "$INSTALL_DIR/connect/package.json" ]]; then
+  elif [[ "$CONNECT_SUPPORTED" -eq 1 && -f "$connect_dir/package.json" ]]; then
     info "Installing bundled connector dependencies..."
-    npm --prefix "$INSTALL_DIR/connect" install
+    npm --prefix "$connect_dir" install
     CONNECT_READY=1
   else
     CONNECT_READY=0
@@ -332,10 +386,13 @@ print_summary() {
   printf "    ${CYAN}mya -p \"your prompt\"${RESET}          # one-shot mode\n"
   printf "    ${CYAN}mya update${RESET}                   # upgrade this installation\n"
   if [[ "$CONNECT_READY" -eq 1 ]]; then
-    printf "    ${CYAN}mya connect wechat login${RESET}     # 微信扫码登录\n"
-    printf "    ${CYAN}mya connect feishu check${RESET}     # 校验飞书应用凭证\n"
+    printf "    ${CYAN}mya wechat login${RESET}             # 微信扫码登录\n"
+    printf "    ${CYAN}mya feishu check${RESET}             # 校验飞书应用凭证\n"
+    printf "    ${CYAN}mya bots${RESET}                     # 查看已配置 bot\n"
+    printf "    ${CYAN}mya serve status${RESET}             # 查看常驻服务状态\n"
+    printf "    ${CYAN}cp ${CONNECT_CONFIG_DIR}/.env.hub.example ${CONNECT_CONFIG_DIR}/.env${RESET}   # bot 模板配置\n"
   else
-    printf "    ${DIM}Install Node.js ${NODE_MIN_MAJOR}+ later if you want \`mya connect\`.${RESET}\n"
+    printf "    ${DIM}Install Node.js ${NODE_MIN_MAJOR}+ later if you want \`mya wechat\`, \`mya feishu\`, or multi-bot service.${RESET}\n"
   fi
   echo ""
   printf "  ${BOLD}Set your API key:${RESET}\n"
@@ -348,6 +405,8 @@ print_summary() {
   printf "  ${DIM}Install dir: ${INSTALL_DIR}${RESET}\n"
   printf "  ${DIM}Binary:      ${INSTALL_DIR}/cli${RESET}\n"
   printf "  ${DIM}Link:        ${LINK_DIR}/mya${RESET}\n"
+  printf "  ${DIM}Hub env:     ${CONNECT_CONFIG_DIR}/.env.hub.example${RESET}\n"
+  printf "  ${DIM}Hub profiles:${CONNECT_CONFIG_DIR}/examples/profiles${RESET}\n"
   echo ""
 }
 
@@ -377,6 +436,7 @@ main() {
       ;;
   esac
 
+  seed_hub_templates
   link_binary
   print_summary
 }

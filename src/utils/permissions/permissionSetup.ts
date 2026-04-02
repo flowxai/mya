@@ -23,6 +23,7 @@ import {
 } from '../settings/settings.js'
 import {
   type PermissionMode,
+  PERMISSION_MODES,
   permissionModeFromString,
 } from './PermissionMode.js'
 import { applyPermissionRulesToPermissionContext } from './permissions.js'
@@ -740,8 +741,12 @@ export function initialPermissionModeFromCLI({
       orderedModes.push(parsedMode)
     }
   }
-  if (settings.permissions?.defaultMode) {
-    const settingsMode = settings.permissions.defaultMode as PermissionMode
+  const configuredDefaultMode = resolveConfiguredDefaultPermissionMode({
+    env: process.env,
+    settings,
+  })
+  if (configuredDefaultMode) {
+    const settingsMode = configuredDefaultMode
     // CCR only supports acceptEdits and plan — ignore other defaultModes from
     // settings (e.g. bypassPermissions would otherwise silently grant full
     // access in a remote environment).
@@ -809,6 +814,55 @@ export function initialPermissionModeFromCLI({
 
   return result
 }
+
+export function resolveConfiguredDefaultPermissionMode({
+  env,
+  settings,
+}: {
+  env?: Record<string, string | undefined>
+  settings?: {
+    env?: Record<string, string | undefined>
+    permissions?: {
+      defaultMode?: string
+    }
+  }
+}): PermissionMode | undefined {
+  const rawEnvMode =
+    normalizeConfiguredPermissionMode(env?.MYA_DEFAULT_PERMISSION_MODE) ??
+    normalizeConfiguredPermissionMode(settings?.env?.MYA_DEFAULT_PERMISSION_MODE)
+  if (rawEnvMode) {
+    return rawEnvMode
+  }
+
+  return normalizeConfiguredPermissionMode(settings?.permissions?.defaultMode)
+}
+
+function normalizeConfiguredPermissionMode(
+  value: string | undefined,
+): PermissionMode | undefined {
+  const normalizedValue = value?.trim()
+  if (!normalizedValue) {
+    return undefined
+  }
+
+  const alias =
+    CONFIGURED_PERMISSION_MODE_ALIASES[
+      normalizedValue.toLowerCase() as keyof typeof CONFIGURED_PERMISSION_MODE_ALIASES
+    ]
+  const resolvedValue = alias ?? normalizedValue
+  if (!(PERMISSION_MODES as readonly string[]).includes(resolvedValue)) {
+    return undefined
+  }
+  return permissionModeFromString(resolvedValue)
+}
+
+const CONFIGURED_PERMISSION_MODE_ALIASES = {
+  'auto-mode': 'auto',
+  automode: 'auto',
+  'dangerously-skip-permissions': 'bypassPermissions',
+  dangerous_skip_permissions: 'bypassPermissions',
+  'skip-permissions': 'bypassPermissions',
+} as const
 
 export function parseToolListFromCLI(tools: string[]): string[] {
   if (tools.length === 0) {

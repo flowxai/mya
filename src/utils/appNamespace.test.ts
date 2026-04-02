@@ -29,7 +29,7 @@ afterEach(() => {
 })
 
 describe('app namespace migration', () => {
-  test('copies the legacy home config tree into the my_agent namespace once', () => {
+  test('copies the legacy home config tree into the .mya namespace once', () => {
     const homeDir = makeTempDir()
     const legacyDir = join(homeDir, '.claude')
     const targetDir = join(homeDir, PRIMARY_CONFIG_DIR_NAME)
@@ -48,7 +48,7 @@ describe('app namespace migration', () => {
     )
   })
 
-  test('copies the legacy global config file into the my_agent namespace once', () => {
+  test('copies the legacy global config file into the .mya namespace once', () => {
     const homeDir = makeTempDir()
     const legacyFile = join(homeDir, '.claude.json')
     const targetFile = join(homeDir, PRIMARY_GLOBAL_CONFIG_FILE_NAME)
@@ -60,7 +60,7 @@ describe('app namespace migration', () => {
     expect(readFileSync(targetFile, 'utf8')).toContain('"theme":"dark"')
   })
 
-  test('copies the project .claude directory into .my_agent when needed', () => {
+  test('copies the project .claude directory into .mya when needed', () => {
     const projectDir = makeTempDir()
     const legacyProjectDir = join(projectDir, '.claude')
     const targetProjectDir = join(projectDir, PRIMARY_CONFIG_DIR_NAME)
@@ -76,8 +76,8 @@ describe('app namespace migration', () => {
     ).toContain('"debug":true')
   })
 
-  test('uses the my_agent namespace for user-facing skill paths', () => {
-    expect(getProjectSkillsDirDisplayPath()).toBe('.my_agent/skills/')
-    expect(getGlobalSkillsDirDisplayPath()).toBe('~/.my_agent/skills/')
+  test('uses the .mya namespace for user-facing skill paths', () => {
+    expect(getProjectSkillsDirDisplayPath()).toBe('.mya/skills/')
+    expect(getGlobalSkillsDirDisplayPath()).toBe('~/.mya/skills/')
   })
 })

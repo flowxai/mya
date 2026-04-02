@@ -1,11 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -L "${SOURCE_PATH}" ]]; do
+  SOURCE_DIR="$(cd -P "$(dirname "${SOURCE_PATH}")" && pwd)"
+  SOURCE_PATH="$(readlink "${SOURCE_PATH}")"
+  [[ "${SOURCE_PATH}" != /* ]] && SOURCE_PATH="${SOURCE_DIR}/${SOURCE_PATH}"
+done
+
+SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE_PATH}")" && pwd)"
 CLI_PATH="${SCRIPT_DIR}/../cli"
-CONNECT_ENTRY="${SCRIPT_DIR}/../connect/bin/mya-connect.js"
-CONNECT_NODE_MODULES="${SCRIPT_DIR}/../connect/node_modules"
+CONNECT_RUNTIME_DIR="${SCRIPT_DIR}/../runtime/connect"
+CONNECT_ENTRY="${CONNECT_RUNTIME_DIR}/bin/mya-connect.js"
+CONNECT_NODE_MODULES="${CONNECT_RUNTIME_DIR}/node_modules"
 INSTALLER_PATH="${SCRIPT_DIR}/../install.sh"
+
+print_product_help() {
+  cat <<'EOF'
+
+Product Commands:
+  Bots:
+    mya bots                    List saved bots and choose one to open
+    mya bots add <name>         Create a bot in the current workspace and open it
+    mya bots remove <name>      Remove a saved bot and its BOT.md
+
+  Channels:
+    mya wechat login [bot]      Login WeChat and bind it to a bot
+    mya wechat accounts         Show saved WeChat accounts
+    mya feishu login [bot]      Save Feishu app credentials for a bot
+    mya feishu check            Validate Feishu app credentials
+
+  Service:
+    mya serve                   Start every configured bot/channel together
+
+  First-time Bot Setup:
+    mya bots add review-bot     Create a new bot and open it immediately
+    /whoru                      Explain or save the bot's identity and purpose
+
+Notes:
+  - omitting [bot] uses the `default` bot
+  - `mya bots add <name>` writes both `profile.json` and `BOT.md`
+  - WeChat can only be bound to one bot at a time
+  - each Feishu bot keeps its own appId/appSecret inside that bot profile
+  - `mya serve` starts every bot that already has a bound wechat or feishu channel
+  - advanced debug commands still exist: `mya serve status|restart|stop|logs`, `mya wechat start`, `mya feishu start`
+  - current session diagnostics still use `/status`, `/tasks`, `/doctor`, `/agents`
+EOF
+}
+
+print_combined_help() {
+  "${CLI_PATH}" --help
+  print_product_help
+}
 
 run_installer() {
   if [[ ! -f "${INSTALLER_PATH}" ]]; then
@@ -16,22 +62,40 @@ run_installer() {
   exec "${INSTALLER_PATH}" "$@"
 }
 
-if [[ "${1:-}" == "connect" ]]; then
-  shift
+is_connect_command() {
+  case "${1:-}" in
+    connect|wechat|feishu|bots|serve)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
+  print_combined_help
+  exit 0
+fi
+
+if is_connect_command "${1:-}"; then
+  if [[ "${1:-}" == "connect" ]]; then
+    shift
+  fi
 
   if [[ ! -f "${CONNECT_ENTRY}" ]]; then
-    echo "[mya connect] bundled connect runtime is missing at ${CONNECT_ENTRY}" >&2
+    echo "[mya] bundled channel runtime is missing at ${CONNECT_ENTRY}" >&2
     exit 1
   fi
 
   if [[ ! -d "${CONNECT_NODE_MODULES}" ]]; then
-    echo "[mya connect] bundled connector dependencies are missing." >&2
-    echo "[mya connect] run 'npm --prefix \"${SCRIPT_DIR}/../connect\" install' first." >&2
+    echo "[mya] bundled channel runtime dependencies are missing." >&2
+    echo "[mya] run 'bun run setup' or './install.sh' first." >&2
     exit 1
   fi
 
   if ! command -v node >/dev/null 2>&1; then
-    echo "[mya connect] Node.js >= 22 is required to run channel connectors." >&2
+    echo "[mya] Node.js >= 22 is required to run mya wechat / mya feishu / mya serve." >&2
     exit 1
   fi
 

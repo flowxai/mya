@@ -70,6 +70,7 @@ import {
   processUserInput,
 } from './utils/processUserInput/processUserInput.js'
 import { fetchSystemPromptParts } from './utils/queryContext.js'
+import { getBotIdentityPrompt } from './utils/systemPrompt.js'
 import { setCwd } from './utils/Shell.js'
 import {
   flushSessionStorage,
@@ -298,6 +299,9 @@ export class QueryEngine {
       mcpClients,
       customSystemPrompt: customPrompt,
     })
+    const botIdentityPrompt = await getBotIdentityPrompt(
+      initialAppState.toolPermissionContext.mode,
+    )
     headlessProfilerCheckpoint('after_getSystemPrompt')
     const userContext = {
       ...baseUserContext,
@@ -321,6 +325,7 @@ export class QueryEngine {
     const systemPrompt = asSystemPrompt([
       ...(customPrompt !== undefined ? [customPrompt] : defaultSystemPrompt),
       ...(memoryMechanicsPrompt ? [memoryMechanicsPrompt] : []),
+      ...(botIdentityPrompt ? [botIdentityPrompt] : []),
       ...(appendSystemPrompt ? [appendSystemPrompt] : []),
     ])
 

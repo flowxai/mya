@@ -1,0 +1,64 @@
+{
+  "profileId": "ops-bot",
+  "name": "Ops Bot",
+  "description": "Operations bot for on-call workflows, incident follow-up, and background checks.",
+  "defaultModel": "sonnet",
+  "defaultEffort": "medium",
+  "permissionMode": "dontAsk",
+  "workspaceAllowlist": [
+    "/workspace/ops-main",
+    "/workspace/ops-oncall"
+  ],
+  "workers": [
+    "researcher",
+    "reviewer"
+  ],
+  "memoryPolicy": {
+    "scope": "profile+workspace",
+    "inheritanceMode": "profile"
+  },
+  "wakePolicy": {
+    "schedules": [
+      {
+        "profileId": "ops-bot",
+        "kind": "schedule",
+        "cron": "*/5 * * * *",
+        "workspaceRoot": "/workspace/ops-main"
+      },
+      {
+        "profileId": "ops-bot",
+        "kind": "event_file",
+        "eventFile": "/Users/your-name/.mya/connect/hub/events/ops-bot.jsonl"
+      }
+    ],
+    "events": [
+      "incident_opened",
+      "incident_updated"
+    ]
+  },
+  "channels": [
+    {
+      "type": "wechat",
+      "accountId": "ops-main",
+      "defaultWorkspaceRoot": "/workspace/ops-main",
+      "defaultWorkspaceId": "ops-main",
+      "workspaceAllowlist": [
+        "/workspace/ops-main"
+      ],
+      "permissionMode": "dontAsk",
+      "enableAutoMode": true
+    },
+    {
+      "type": "wechat",
+      "accountId": "ops-oncall",
+      "defaultWorkspaceRoot": "/workspace/ops-oncall",
+      "defaultWorkspaceId": "ops-oncall",
+      "workspaceAllowlist": [
+        "/workspace/ops-oncall"
+      ],
+      "permissionMode": "dontAsk",
+      "enableAutoMode": true,
+      "enableTyping": true
+    }
+  ]
+}

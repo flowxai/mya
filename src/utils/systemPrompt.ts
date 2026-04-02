@@ -6,6 +6,8 @@ import {
 import type { ToolUseContext } from '../Tool.js'
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import { isBuiltInAgent } from '../tools/AgentTool/loadAgentsDir.js'
+import { buildBotIdentityPrompt, resolveBotIdentity } from './botIdentity.js'
+import { getCwd } from './cwd.js'
 import { isEnvTruthy } from './envUtils.js'
 import { asSystemPrompt, type SystemPrompt } from './systemPromptType.js'
 
@@ -45,6 +47,7 @@ export function buildEffectiveSystemPrompt({
   defaultSystemPrompt,
   appendSystemPrompt,
   overrideSystemPrompt,
+  botIdentityPrompt,
 }: {
   mainThreadAgentDefinition: AgentDefinition | undefined
   toolUseContext: Pick<ToolUseContext, 'options'>
@@ -52,6 +55,7 @@ export function buildEffectiveSystemPrompt({
   defaultSystemPrompt: string[]
   appendSystemPrompt: string | undefined
   overrideSystemPrompt?: string | null
+  botIdentityPrompt?: string
 }): SystemPrompt {
   if (overrideSystemPrompt) {
     return asSystemPrompt([overrideSystemPrompt])
@@ -70,6 +74,7 @@ export function buildEffectiveSystemPrompt({
       require('../coordinator/coordinatorMode.js') as typeof import('../coordinator/coordinatorMode.js')
     return asSystemPrompt([
       getCoordinatorSystemPrompt(),
+      ...(botIdentityPrompt ? [botIdentityPrompt] : []),
       ...(appendSystemPrompt ? [appendSystemPrompt] : []),
     ])
   }
@@ -108,6 +113,7 @@ export function buildEffectiveSystemPrompt({
     return asSystemPrompt([
       ...defaultSystemPrompt,
       `\n# Custom Agent Instructions\n${agentSystemPrompt}`,
+      ...(botIdentityPrompt ? [botIdentityPrompt] : []),
       ...(appendSystemPrompt ? [appendSystemPrompt] : []),
     ])
   }
@@ -118,6 +124,18 @@ export function buildEffectiveSystemPrompt({
       : customSystemPrompt
         ? [customSystemPrompt]
         : defaultSystemPrompt),
+    ...(botIdentityPrompt ? [botIdentityPrompt] : []),
     ...(appendSystemPrompt ? [appendSystemPrompt] : []),
   ])
+}
+
+export async function getBotIdentityPrompt(
+  permissionMode: string | undefined,
+): Promise<string | undefined> {
+  const identity = await resolveBotIdentity({
+    cwd: getCwd(),
+    permissionMode,
+  })
+  const prompt = buildBotIdentityPrompt(identity)
+  return prompt || undefined
 }

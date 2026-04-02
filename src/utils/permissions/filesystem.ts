@@ -61,7 +61,7 @@ declare const MACRO: { VERSION: string }
  * These files can be used for code execution or data exfiltration.
  */
 export const DANGEROUS_FILES = [
-  '.my_agent.json',
+  '.mya.json',
   '.gitconfig',
   '.gitmodules',
   '.bashrc',
@@ -224,8 +224,8 @@ export function isClaudeSettingsPath(filePath: string): boolean {
 
   // Use platform separator so endsWith checks work on both Unix (/) and Windows (\)
   if (
-    normalizedPath.endsWith(`${sep}.my_agent${sep}settings.json`) ||
-    normalizedPath.endsWith(`${sep}.my_agent${sep}settings.local.json`) ||
+    normalizedPath.endsWith(`${sep}.mya${sep}settings.json`) ||
+    normalizedPath.endsWith(`${sep}.mya${sep}settings.local.json`) ||
     normalizedPath.endsWith(`${sep}.claude${sep}settings.json`) ||
     normalizedPath.endsWith(`${sep}.claude${sep}settings.local.json`)
   ) {
@@ -288,6 +288,24 @@ export function getSessionMemoryDir(): string {
  */
 export function getSessionMemoryPath(): string {
   return join(getSessionMemoryDir(), 'summary.md')
+}
+
+function getActiveBotWritablePaths(): string[] {
+  const candidates = [
+    process.env.MYA_ACTIVE_BOT_PROFILE_PATH,
+    process.env.MYA_ACTIVE_BOT_INSTRUCTIONS_PATH,
+  ]
+
+  return candidates
+    .map(path => (typeof path === 'string' && path.trim() ? normalize(expandPath(path)) : ''))
+    .filter(Boolean)
+}
+
+function isActiveBotWritablePath(absolutePath: string): boolean {
+  const normalizedTargetPath = normalize(absolutePath)
+  return getActiveBotWritablePaths().some(
+    allowedPath => allowedPath === normalizedTargetPath,
+  )
 }
 
 // Check if file is within the session memory directory
@@ -1503,6 +1521,17 @@ export function checkEditableInternalPath(
   // SECURITY: Normalize path to prevent traversal bypasses via .. segments
   // This is defense-in-depth; individual helper functions also normalize
   const normalizedPath = normalize(absolutePath)
+
+  if (isActiveBotWritablePath(normalizedPath)) {
+    return {
+      behavior: 'allow',
+      updatedInput: input,
+      decisionReason: {
+        type: 'other',
+        reason: 'Active bot profile files are allowed for writing',
+      },
+    }
+  }
 
   // Plan files for current session
   if (isSessionPlanFile(normalizedPath)) {

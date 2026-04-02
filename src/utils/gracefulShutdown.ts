@@ -40,6 +40,7 @@ import { runCleanupFunctions } from './cleanupRegistry.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import { isEnvTruthy } from './envUtils.js'
+import { APP_COMMAND_NAME } from './appNamespace.js'
 import { getCurrentSessionTitle, sessionIdExists } from './sessionStorage.js'
 import { sleep } from './sleep.js'
 import { profileReport } from './startupProfiler.js'
@@ -137,6 +138,10 @@ function cleanupTerminalModes(): void {
 
 let resumeHintPrinted = false
 
+export function buildResumeHintText(resumeArg: string): string {
+  return `\nResume this session with:\n${APP_COMMAND_NAME} --resume ${resumeArg}\n`
+}
+
 /**
  * Print a hint about how to resume the session.
  * Only shown for interactive sessions with persistence enabled.
@@ -154,7 +159,7 @@ function printResumeHint(): void {
   ) {
     try {
       const sessionId = getSessionId()
-      // Don't show resume hint if no session file exists (e.g., subcommands like `claude update`)
+      // Don't show resume hint if no session file exists (e.g., subcommands like `mya update`)
       if (!sessionIdExists(sessionId)) {
         return
       }
@@ -172,9 +177,7 @@ function printResumeHint(): void {
 
       writeSync(
         1,
-        chalk.dim(
-          `\nResume this session with:\nclaude --resume ${resumeArg}\n`,
-        ),
+        chalk.dim(buildResumeHintText(resumeArg)),
       )
       resumeHintPrinted = true
     } catch {

@@ -1,6 +1,7 @@
 import { sep } from 'path'
 import { getOriginalCwd } from '../bootstrap/state.js'
 import type { LogOption } from '../types/logs.js'
+import { APP_COMMAND_NAME } from './appNamespace.js'
 import { quote } from './bash/shellQuote.js'
 import { getSessionIdFromLog } from './sessionStorage.js'
 
@@ -41,7 +42,7 @@ export function checkCrossProjectResume(
   // Gate worktree detection to ants only for staged rollout
   if (process.env.USER_TYPE !== 'ant') {
     const sessionId = getSessionIdFromLog(log)
-    const command = `cd ${quote([log.projectPath])} && claude --resume ${sessionId}`
+    const command = `cd ${quote([log.projectPath])} && ${APP_COMMAND_NAME} --resume ${sessionId}`
     return {
       isCrossProject: true,
       isSameRepoWorktree: false,
@@ -65,7 +66,7 @@ export function checkCrossProjectResume(
 
   // Different repo - generate cd command
   const sessionId = getSessionIdFromLog(log)
-  const command = `cd ${quote([log.projectPath])} && claude --resume ${sessionId}`
+  const command = `cd ${quote([log.projectPath])} && ${APP_COMMAND_NAME} --resume ${sessionId}`
   return {
     isCrossProject: true,
     isSameRepoWorktree: false,
