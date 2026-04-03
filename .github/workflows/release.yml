@@ -4,9 +4,9 @@ on:
   push:
     tags:
       - 'v*'
-      workflow_dispatch:
-        inputs:
-          release_tag:
+  workflow_dispatch:
+    inputs:
+      release_tag:
         description: Existing tag to publish assets to, for example v0.1.0
         required: false
         type: string
