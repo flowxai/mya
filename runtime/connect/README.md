@@ -90,7 +90,7 @@ bot 的底层定义仍然是一份 profile：
 ~/.mya/connect/hub/profiles/<bot-id>/BOT.md
 ```
 
-这份文件就是 bot 专属的长期指令文件，作用类似这个 bot 自己的 `CLAUDE.md`。适合写：
+这份文件就是 bot 专属的长期指令文件，作用类似这个 bot 自己的专属说明文件。适合写：
 
 - 角色和职责
 - 长期工作风格
@@ -160,23 +160,13 @@ mya serve
 
 ## `mya bots`
 
-`mya bots` 现在只做一件事：列出现有 bot。
+`mya bots` 在交互终端里会打开一个 bot 列表，让你直接上下选择并进入对应 bot：
 
-它会显示：
+- `↑ / ↓` 选择
+- `Enter` 进入
+- `q / Esc` 退出
 
-- bot id
-- workspace
-- identity 状态
-- channel 列表
-
-例如：
-
-```text
-- review-bot
-  workspace: /path/to/repo
-  identity: bootstrap
-  channels: terminal-only
-```
+在非交互环境下，它会退化成纯列表输出，方便脚本使用。
 
 ## `mya serve`
 
@@ -203,6 +193,23 @@ mya serve restart
 mya serve logs
 mya serve stop
 ```
+
+## 渠道里的系统命令
+
+微信和飞书里这些命令不会发给 bot，而是由运行时直接处理：
+
+- `/mya status`
+  返回 bot 工作状态面板，重点看当前是否正在运行、有没有卡住、最近做到哪一步
+- `/mya message`
+  返回最近会话摘要
+- `/mya stop`
+  立即停止当前 turn，语义接近终端里的 `Esc`
+- `/mya approve`
+  通过当前等待中的权限请求
+- `/mya reject`
+  拒绝当前等待中的权限请求
+
+`/mya status` 现在显示的是工作状态，不是聊天历史。面板里的 `BACKGROUND` 只统计后台调度任务，不包含眼前这条前台 turn。
 
 ## 定时唤醒
 

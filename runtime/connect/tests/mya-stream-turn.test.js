@@ -373,6 +373,85 @@ test("MyaStreamTurn sends interrupt requests for stop", async () => {
   await resultPromise;
 });
 
+test("MyaStreamTurn stop force-kills a stuck child after a short grace period", async () => {
+  const child = createFakeChild();
+  const killSignals = [];
+  child.kill = (signal = "SIGTERM") => {
+    killSignals.push(signal);
+    setImmediate(() => {
+      child.emit("close", signal === "SIGKILL" ? 137 : 143);
+    });
+    return true;
+  };
+
+  const turn = new MyaStreamTurn(
+    {
+      myaCommand: "mya",
+      workspaceRoot: "/tmp/project",
+      sessionId: "423e4567-e89b-12d3-a456-426614174001",
+      permissionMode: "default",
+    },
+    {
+      spawn: async () => child,
+    },
+  );
+
+  const resultPromise = turn.run("长任务");
+  await Promise.resolve();
+
+  const stopResult = await turn.stop({ interruptGraceMs: 1, forceKillWaitMs: 20 });
+  const result = await resultPromise;
+
+  assert.equal(stopResult.stopped, true);
+  assert.equal(stopResult.forced, true);
+  assert.deepEqual(killSignals, ["SIGTERM"]);
+  assert.equal(result.interrupted, true);
+  assert.equal(result.forced, true);
+  assert.equal(result.isError, false);
+});
+
+test("MyaStreamTurn escalates to SIGKILL when SIGTERM does not stop the child", async () => {
+  const child = createFakeChild();
+  const killSignals = [];
+  child.kill = (signal = "SIGTERM") => {
+    killSignals.push(signal);
+    if (signal === "SIGKILL") {
+      setImmediate(() => {
+        child.emit("close", 137);
+      });
+    }
+    return true;
+  };
+
+  const turn = new MyaStreamTurn(
+    {
+      myaCommand: "mya",
+      workspaceRoot: "/tmp/project",
+      sessionId: "423e4567-e89b-12d3-a456-426614174002",
+      permissionMode: "default",
+    },
+    {
+      spawn: async () => child,
+    },
+  );
+
+  const resultPromise = turn.run("长任务");
+  await Promise.resolve();
+
+  const stopResult = await turn.stop({
+    interruptGraceMs: 1,
+    forceKillWaitMs: 5,
+    terminateGraceMs: 5,
+  });
+  const result = await resultPromise;
+
+  assert.equal(stopResult.stopped, true);
+  assert.equal(stopResult.forced, true);
+  assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(result.interrupted, true);
+  assert.equal(result.forced, true);
+});
+
 test("MyaStreamTurn reports lifecycle updates into the hub task registry", async () => {
   const child = createFakeChild();
   const calls = [];

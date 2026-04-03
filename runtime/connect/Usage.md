@@ -164,7 +164,25 @@ mya connect hub tasks resume <taskId>
 
 而单会话里的恢复，仍然优先用原生 `--resume` 和 `/tasks`。
 
-## 9. 附件落盘逻辑
+## 9. 渠道里的状态和停止
+
+在微信或飞书里，优先用这些系统命令：
+
+- `/mya status`
+  看 bot 当前工作状态，而不是聊天历史
+- `/mya message`
+  看最近摘要
+- `/mya stop`
+  立即停止当前 turn
+
+如果需要后台排障，再回到主机侧使用：
+
+```bash
+mya serve status
+mya serve logs
+```
+
+## 10. 附件落盘逻辑
 
 微信 / 飞书的图片和文件会先落到当前工作区：
 
@@ -179,7 +197,7 @@ mya connect hub tasks resume <taskId>
 - `mya` 只面对本地文件
 - bot 间附件天然按 `profile-id` 隔离
 
-## 10. 什么时候不需要这些高级配置
+## 11. 什么时候不需要这些高级配置
 
 如果你只是：
 

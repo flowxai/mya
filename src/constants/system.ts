@@ -12,7 +12,7 @@ import { getWorkload } from '../utils/workloadContext.js'
 
 const DEFAULT_PREFIX = getAppIdentityPrompt()
 const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX = `${getAppIdentityPrompt().slice(0, -1)}, running within the Claude Agent SDK.`
-const AGENT_SDK_PREFIX = `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
+const AGENT_SDK_PREFIX = `You are an agent for mya, running within an agent SDK.`
 
 const CLI_SYSPROMPT_PREFIX_VALUES = [
   DEFAULT_PREFIX,

@@ -4,10 +4,10 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Existing tag to publish assets to, for example v2.1.87
+      workflow_dispatch:
+        inputs:
+          release_tag:
+        description: Existing tag to publish assets to, for example v0.1.0
         required: false
         type: string
 
@@ -45,13 +45,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: connect/package-lock.json
+          cache-dependency-path: runtime/connect/package-lock.json
 
       - name: Install core dependencies
         run: bun install --frozen-lockfile
 
       - name: Install bundled connect runtime
-        run: npm --prefix ./connect ci --omit=dev
+        run: npm --prefix ./runtime/connect ci --omit=dev
 
       - name: Build compiled CLI
         run: bun run compile

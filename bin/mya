@@ -48,8 +48,23 @@ Notes:
 EOF
 }
 
+sanitize_base_help() {
+  perl -0pe '
+    s/Claude Code/mya/g;
+    s/Manage Claude Code plugins/Manage mya plugins/g;
+    s/Check the health of your Claude Code auto-updater\./Check the health of your mya auto-updater./g;
+    s/Install Claude Code native build\./Install mya native build./g;
+    s/Enable Claude in Chrome integration/Enable browser integration/g;
+    s/Disable Claude in Chrome integration/Disable browser integration/g;
+    s/requires Claude subscription/requires an active subscription/g;
+    s/when Claude is run/when mya is run/g;
+    s/CLAUDE\.md auto-discovery/project-instructions auto-discovery/g;
+    s/CLAUDE\.md dirs/project-instructions dirs/g;
+  '
+}
+
 print_combined_help() {
-  "${CLI_PATH}" --help
+  "${CLI_PATH}" --help | sanitize_base_help
   print_product_help
 }
 

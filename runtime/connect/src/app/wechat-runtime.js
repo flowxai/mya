@@ -44,6 +44,10 @@ const {
   getConnectLogPrefix,
   getPermissionDeniedSource,
 } = require("../shared/branding");
+const {
+  buildBotWorkStatusText,
+  summarizeText,
+} = require("../shared/bot-status");
 
 const SESSION_EXPIRED_ERRCODE = -14;
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
@@ -74,6 +78,7 @@ class WechatRuntime {
     this.typingStopByUserId = new Map();
     this.pendingByBindingKey = new Map();
     this.activeTurnByRuntimeKey = new Map();
+    this.recentStatusByRuntimeKey = new Map();
   }
 
   async start() {
@@ -223,7 +228,8 @@ class WechatRuntime {
   shouldBypassQueue(normalized) {
     return normalized.command === "approve"
       || normalized.command === "reject"
-      || normalized.command === "stop";
+      || normalized.command === "stop"
+      || normalized.command === "inspect_status";
   }
 
   async handleNormalized(normalized) {
@@ -249,7 +255,9 @@ class WechatRuntime {
           workspaceRoot: workspaceContext.workspaceRoot,
           normalized,
         });
-        await this.sendReplyToNormalized(normalized, reply);
+        if (reply) {
+          await this.sendReplyToNormalized(normalized, reply);
+        }
       } finally {
         await this.stopTypingForUser(normalized.senderId);
       }
@@ -289,6 +297,9 @@ class WechatRuntime {
         return true;
       case "inspect_message":
         await this.handleMessageCommand(normalized);
+        return true;
+      case "inspect_status":
+        await this.handleStatusCommand(normalized);
         return true;
       case "stop":
         await this.handleStopCommand(normalized);
@@ -463,6 +474,18 @@ class WechatRuntime {
     ));
   }
 
+  async handleStatusCommand(normalized) {
+    const workspaceContext = await this.resolveWorkspaceContext(normalized, false);
+    if (!workspaceContext) {
+      await this.sendReplyToNormalized(normalized, "当前会话还未绑定项目。");
+      return;
+    }
+    await this.sendReplyToNormalized(normalized, this.buildStatusText(
+      workspaceContext.bindingKey,
+      workspaceContext.workspaceRoot
+    ));
+  }
+
   async handleStopCommand(normalized) {
     const active = await this.resolveActiveTurnForNormalized(normalized);
     if (!active) {
@@ -470,8 +493,19 @@ class WechatRuntime {
       return;
     }
 
-    await active.turn.interrupt();
-    await this.sendReplyToNormalized(normalized, "已发送中断请求，等待 mya 停止当前任务。");
+    active.status = "stopping";
+    active.stopAcknowledged = true;
+    const stopResult = typeof active.turn.stop === "function"
+      ? await active.turn.stop()
+      : await fallbackInterruptStop(active.turn);
+    active.pendingPermission = null;
+    active.status = stopResult?.stopped ? "stopped" : "stopping";
+    await this.sendReplyToNormalized(
+      normalized,
+      stopResult?.stopped
+        ? (stopResult?.forced ? "已强制停止当前任务。" : "已停止当前任务。")
+        : "已发送停止请求，但当前任务尚未退出。"
+    );
   }
 
   async handleModelCommand(normalized) {
@@ -657,6 +691,7 @@ class WechatRuntime {
       "/mya new",
       "/mya switch <sessionId>",
       "/mya message",
+      "/mya status",
       "/mya model",
       "/mya model <modelId>",
       "/mya effort",
@@ -667,7 +702,7 @@ class WechatRuntime {
       "",
       "普通文本消息会直接发送给当前项目对应的 mya 会话。",
       "私聊图片/文件会自动保存到 .mya/inbox/wechat 并进入当前 turn；群聊附件需要 /mya 触发。",
-      "支持 /mya approve、/mya approve workspace、/mya reject、/mya stop。",
+      "支持 /mya approve、/mya approve workspace、/mya reject、/mya stop、/mya status。",
     ].join("\n");
   }
 
@@ -822,6 +857,14 @@ class WechatRuntime {
       status: "running",
       pendingPermission: null,
       lastToolUse: null,
+      lastProgress: null,
+      lastError: "",
+      lastResultSummary: "",
+      startedAt: new Date().toISOString(),
+      lastEventAt: new Date().toISOString(),
+      lastUpdatedAt: new Date().toISOString(),
+      progressNotificationsSent: new Set(),
+      stopAcknowledged: false,
     };
     this.activeTurnByRuntimeKey.set(runtimeKey, active);
     this.attachTurnEventHandlers(active, normalized);
@@ -848,10 +891,24 @@ class WechatRuntime {
           text: result.result,
         });
       }
+      active.lastResultSummary = summarizeText(result.result);
+      active.lastUpdatedAt = new Date().toISOString();
+      this.persistRecentStatusSnapshot(runtimeKey, active, {
+        status: result.interrupted && active.stopAcknowledged ? "stopped" : "idle",
+        finishedAt: new Date().toISOString(),
+      });
       return {
         sessionId: resolvedSessionId,
-        reply: result.result || "已完成。",
+        reply: result.interrupted && active.stopAcknowledged ? "" : (result.result || "已完成。"),
       };
+    } catch (error) {
+      active.lastError = error.message || String(error);
+      active.lastUpdatedAt = new Date().toISOString();
+      this.persistRecentStatusSnapshot(runtimeKey, active, {
+        status: "error",
+        finishedAt: new Date().toISOString(),
+      });
+      throw error;
     } finally {
       if (this.activeTurnByRuntimeKey.get(runtimeKey)?.turn === turn) {
         this.activeTurnByRuntimeKey.delete(runtimeKey);
@@ -861,8 +918,16 @@ class WechatRuntime {
 
   attachTurnEventHandlers(active, normalized) {
     active.turn.on("event", (event) => {
+      active.lastEventAt = new Date().toISOString();
+      active.lastUpdatedAt = active.lastEventAt;
       if (event.type === "tool_use") {
         active.lastToolUse = event;
+        return;
+      }
+
+      if (event.type === "tool_progress") {
+        active.lastProgress = event;
+        void this.maybeSendProgressUpdate(active, normalized, event).catch(() => {});
         return;
       }
 
@@ -906,7 +971,25 @@ class WechatRuntime {
       if (event.type === "result") {
         active.pendingPermission = null;
         active.status = "idle";
+        active.lastProgress = null;
+        active.lastUpdatedAt = new Date().toISOString();
       }
+    });
+  }
+
+  persistRecentStatusSnapshot(runtimeKey, active, patch = {}) {
+    this.recentStatusByRuntimeKey.set(runtimeKey, {
+      runtimeContext: active?.runtimeContext || this.runtimeContext,
+      status: patch.status || active?.status || "idle",
+      pendingPermission: patch.pendingPermission ?? active?.pendingPermission ?? null,
+      lastToolUse: patch.lastToolUse || active?.lastToolUse || null,
+      lastProgress: patch.lastProgress || active?.lastProgress || null,
+      lastError: patch.lastError || active?.lastError || "",
+      lastResultSummary: patch.lastResultSummary || active?.lastResultSummary || "",
+      startedAt: patch.startedAt || active?.startedAt || "",
+      lastEventAt: patch.lastEventAt || active?.lastEventAt || "",
+      lastUpdatedAt: patch.lastUpdatedAt || active?.lastUpdatedAt || new Date().toISOString(),
+      finishedAt: patch.finishedAt || "",
     });
   }
 
@@ -963,21 +1046,9 @@ class WechatRuntime {
     return this.getActiveTurn(workspaceContext.bindingKey, workspaceContext.workspaceRoot);
   }
 
-  buildRecentConversationText(bindingKey, workspaceRoot) {
-    const sessionId = this.sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot) || "(none)";
+  buildRecentConversationText(bindingKey, workspaceRoot, options = {}) {
     const entries = this.sessionStore.getRecentConversationEntries(bindingKey, workspaceRoot);
-    const active = this.getActiveTurn(bindingKey, workspaceRoot);
-    const lines = [
-      `workspace: ${workspaceRoot}`,
-      `session: ${sessionId}`,
-      `status: ${active?.status || "idle"}`,
-    ];
-
-    if (active?.pendingPermission) {
-      lines.push(
-        `pending-permission: ${active.pendingPermission.commandPreview || active.pendingPermission.description || active.pendingPermission.toolName}`
-      );
-    }
+    const lines = this.buildStatusLines(bindingKey, workspaceRoot, options);
 
     if (!entries.length) {
       lines.push("", "当前项目还没有本地会话摘要。");
@@ -989,6 +1060,53 @@ class WechatRuntime {
       lines.push(`${entry.role === "user" ? "- user" : "- assistant"}: ${entry.text}`);
     }
     return lines.join("\n");
+  }
+
+  buildStatusText(bindingKey, workspaceRoot, options = {}) {
+    return this.buildStatusLines(bindingKey, workspaceRoot, options).join("\n");
+  }
+
+  buildStatusLines(bindingKey, workspaceRoot, options = {}) {
+    const sessionId = this.sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot) || "(none)";
+    const active = this.getActiveTurn(bindingKey, workspaceRoot);
+    const snapshot = this.recentStatusByRuntimeKey.get(this.buildRuntimeKey(bindingKey, workspaceRoot)) || null;
+    const profileId = active?.runtimeContext?.profileId
+      || snapshot?.runtimeContext?.profileId
+      || this.runtimeContext.profileId
+      || "default";
+    return buildBotWorkStatusText({
+      botName: profileId,
+      channelType: "wechat",
+      workspaceRoot,
+      sessionId,
+      active,
+      snapshot,
+      recentEntries: this.sessionStore.getRecentConversationEntries(bindingKey, workspaceRoot),
+      now: options.now,
+      taskRegistryFile: this.config.taskRegistryFile,
+    }).split("\n");
+  }
+
+  async maybeSendProgressUpdate(active, normalized, event) {
+    const elapsedTimeSeconds = Math.max(0, Number(event?.elapsedTimeSeconds || 0));
+    if (!active?.progressNotificationsSent || elapsedTimeSeconds < 10) {
+      return;
+    }
+
+    const dedupeKey = String(event?.toolUseId || event?.toolName || "progress");
+    if (active.progressNotificationsSent.has(dedupeKey)) {
+      return;
+    }
+
+    active.progressNotificationsSent.add(dedupeKey);
+    await this.sendReplyToNormalized(
+      normalized,
+      [
+        "当前还在处理中。",
+        `current-tool: ${event.toolName || "(unknown)"}`,
+        `progress: ${event.toolName || "(unknown)"} (${elapsedTimeSeconds}s)`,
+      ].join("\n"),
+    );
   }
 
   async sendReplyToUser(userId, text, contextToken = "") {
@@ -1172,6 +1290,21 @@ function buildWechatTurnInputText(normalized, savedAttachments) {
 }
 
 module.exports.buildWechatTurnInputText = buildWechatTurnInputText;
+
+async function fallbackInterruptStop(turn) {
+  if (!turn || typeof turn.interrupt !== "function") {
+    return {
+      stopped: false,
+      forced: false,
+    };
+  }
+
+  await turn.interrupt();
+  return {
+    stopped: true,
+    forced: false,
+  };
+}
 
 function buildPermissionRequestText(request) {
   const lines = [

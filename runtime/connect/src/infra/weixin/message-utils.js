@@ -121,6 +121,7 @@ function parseCommand(text) {
     stop: ["stop"],
     where: ["where"],
     inspect_message: ["message"],
+    inspect_status: ["status"],
     help: ["help"],
     workspace: ["workspace"],
     new: ["new"],

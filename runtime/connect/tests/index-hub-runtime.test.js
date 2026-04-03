@@ -3,11 +3,14 @@ const assert = require("node:assert/strict");
 
 const {
   buildHelpText,
+  buildHubSupervisorSpawnSpec,
   buildHubSupervisorStatusSnapshot,
+  createManagedChannelRuntime,
   createHubTaskDispatchBridge,
   isHubStatusHeartbeatFresh,
   runHubSupervisorMaintenanceTick,
 } = require("../src/index");
+const path = require("node:path");
 
 test("buildHelpText documents hub runtime commands", () => {
   const helpText = buildHelpText();
@@ -28,6 +31,39 @@ test("hub supervisor status snapshots include heartbeat and running state", () =
   assert.equal(status.state, "running");
   assert.ok(status.heartbeatAt);
   assert.ok(isHubStatusHeartbeatFresh(status));
+});
+
+test("buildHubSupervisorSpawnSpec launches the source hub entrypoint in child mode", () => {
+  const spec = buildHubSupervisorSpawnSpec();
+
+  assert.equal(spec.command, process.execPath);
+  assert.equal(spec.args[0], path.join(path.dirname(require.resolve("../src/index")), "index.js"));
+  assert.deepEqual(spec.args.slice(1), ["hub", "start"]);
+  assert.equal(spec.options.env.MYA_CONNECT_SUPERVISOR_CHILD, "1");
+});
+
+test("createManagedChannelRuntime surfaces startup failures", async () => {
+  const runtime = createManagedChannelRuntime("wechat:test", {
+    async start() {
+      throw new Error("boom");
+    },
+  });
+
+  await assert.rejects(runtime.start(), /boom/);
+});
+
+test("createManagedChannelRuntime treats a long-running channel loop as ready after the startup window", async () => {
+  let started = false;
+  const runtime = createManagedChannelRuntime("wechat:test", {
+    async start() {
+      started = true;
+      await new Promise(() => {});
+    },
+  });
+
+  await runtime.start();
+
+  assert.equal(started, true);
 });
 
 test("runHubSupervisorMaintenanceTick advances scheduled work and records dispatch audits", async () => {

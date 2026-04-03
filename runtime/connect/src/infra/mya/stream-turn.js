@@ -28,6 +28,10 @@ class MyaStreamTurn extends EventEmitter {
     this.taskId = normalizeText(config.taskId);
     this.taskStarted = false;
     this.taskFinalized = false;
+    this.stopRequested = false;
+    this.forceStopped = false;
+    this.exited = false;
+    this.exitListeners = new Set();
   }
 
   async run(content) {
@@ -91,6 +95,53 @@ class MyaStreamTurn extends EventEmitter {
     });
   }
 
+  async stop({
+    interruptGraceMs = 200,
+    terminateGraceMs = 500,
+    forceKillWaitMs = 500,
+  } = {}) {
+    this.stopRequested = true;
+    await this.interrupt();
+
+    if (await this.waitForExit(interruptGraceMs)) {
+      return {
+        stopped: true,
+        forced: false,
+      };
+    }
+
+    const didTerminate = this.killChild("SIGTERM");
+    this.forceStopped = didTerminate || this.forceStopped;
+    if (!didTerminate) {
+      return {
+        stopped: false,
+        forced: false,
+      };
+    }
+
+    if (await this.waitForExit(terminateGraceMs)) {
+      return {
+        stopped: true,
+        forced: true,
+      };
+    }
+
+    const didKill = this.killChild("SIGKILL");
+    this.forceStopped = didKill || this.forceStopped;
+    if (!didKill) {
+      return {
+        stopped: false,
+        forced: true,
+      };
+    }
+
+    await this.waitForExit(forceKillWaitMs);
+    return {
+      stopped: this.exited,
+      forced: true,
+    };
+  }
+
   async start(content) {
     this.reportTaskStart();
     const invocation = buildMyaStreamInvocation(this.config);
@@ -107,17 +158,33 @@ class MyaStreamTurn extends EventEmitter {
       });
 
       child.on("error", (error) => {
+        this.markExited();
         this.reportTaskFailure(error);
         reject(error);
       });
 
       child.on("close", (exitCode) => {
+        this.markExited();
         if (this.resultMessage && Number(exitCode || 0) === 0) {
           resolve({
             sessionId: this.resultMessage.sessionId || this.sessionId,
             result: this.resultMessage.result,
             isError: this.resultMessage.isError,
             permissionDenials: this.resultMessage.permissionDenials,
+            interrupted: this.stopRequested,
+            forced: this.forceStopped,
+          });
+          return;
+        }
+
+        if (this.stopRequested) {
+          resolve({
+            sessionId: this.sessionId,
+            result: "",
+            isError: false,
+            permissionDenials: [],
+            interrupted: true,
+            forced: this.forceStopped,
           });
           return;
         }
@@ -283,6 +350,46 @@ class MyaStreamTurn extends EventEmitter {
     }
     this.emit("event", event);
     this.emitTaskEvent(event);
+  }
+
+  markExited() {
+    if (this.exited) {
+      return;
+    }
+    this.exited = true;
+    for (const listener of this.exitListeners) {
+      listener();
+    }
+    this.exitListeners.clear();
+  }
+
+  waitForExit(timeoutMs) {
+    if (this.exited) {
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      const onExit = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        this.exitListeners.delete(onExit);
+        resolve(false);
+      }, Math.max(0, Number(timeoutMs || 0)));
+      this.exitListeners.add(onExit);
+    });
+  }
+
+  killChild(signal) {
+    if (typeof this.child?.kill !== "function") {
+      return false;
+    }
+    try {
+      return this.child.kill(signal);
+    } catch {
+      return false;
+    }
   }
 
   reportTaskStart() {

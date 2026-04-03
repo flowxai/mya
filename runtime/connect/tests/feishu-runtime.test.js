@@ -220,3 +220,106 @@ test("FeishuRuntime normalizes injected profile context and forwards it into tur
   assert.equal(runtime.sessionStore.filePath, injectedSessionsFile);
   assert.deepEqual(captured.runtimeContext, runtime.runtimeContext);
 });
+
+test("FeishuRuntime bypasses the queue for /mya status", () => {
+  const runtime = createRuntime();
+
+  assert.equal(runtime.shouldBypassQueue({ command: "inspect_status" }), true);
+  assert.equal(runtime.shouldBypassQueue({ command: "inspect_message" }), false);
+});
+
+test("FeishuRuntime buildStatusText renders the bot work panel", () => {
+  const runtime = createRuntime({
+    profileContext: {
+      profileId: "review-bot",
+    },
+  });
+  const bindingKey = "binding";
+  const workspaceRoot = "/tmp/repo";
+
+  runtime.sessionStore.setThreadIdForWorkspace(bindingKey, workspaceRoot, "session-123", {
+    workspaceId: "default",
+    accountId: "cli_test",
+    senderId: "user:ou_test_user",
+  });
+  runtime.activeTurnByRuntimeKey.set(runtime.buildRuntimeKey(bindingKey, workspaceRoot), {
+    bindingKey,
+    workspaceRoot,
+    runtimeContext: runtime.runtimeContext,
+    turn: null,
+    status: "requires_action",
+    pendingPermission: {
+      toolName: "Bash",
+      commandPreview: "git commit",
+    },
+    lastToolUse: {
+      type: "tool_use",
+      toolName: "Bash",
+      toolUseId: "tool-1",
+    },
+    lastProgress: null,
+    startedAt: "2026-04-03T07:40:00.000Z",
+    lastEventAt: "2026-04-03T07:40:12.000Z",
+  });
+
+  const text = runtime.buildStatusText(bindingKey, workspaceRoot);
+
+  assert.match(text, /\[mya status\]/);
+  assert.match(text, /BOT\s+review-bot/);
+  assert.match(text, /STATE\s+WAITING/);
+  assert.match(text, /HEALTH\s+BLOCKED/);
+  assert.match(text, /STUCK\s+NO/);
+  assert.match(text, /WAITING\s+permission approval/);
+  assert.match(text, /LAST\s+Bash -> git commit/);
+});
+
+test("FeishuRuntime stop confirms the running turn is actually stopped", async () => {
+  const runtime = createRuntime({
+    defaultWorkspaceRoot: "/tmp/repo",
+    profileContext: {
+      profileId: "review-bot",
+    },
+  });
+  const normalized = {
+    provider: "feishu",
+    workspaceId: "default",
+    accountId: "cli_test",
+    chatId: "oc_test_chat",
+    threadKey: "",
+    senderId: "user:ou_test_user",
+    senderOpenId: "ou_test_user",
+    messageId: "om_test_message",
+    chatType: "p2p",
+    messageType: "text",
+    unsupportedMessageType: "",
+    text: "/mya stop",
+    command: "stop",
+    receivedAt: new Date().toISOString(),
+  };
+  const bindingKey = runtime.sessionStore.buildBindingKey(normalized);
+  runtime.sessionStore.setActiveWorkspaceRoot(bindingKey, "/tmp/repo");
+  runtime.activeTurnByRuntimeKey.set(runtime.buildRuntimeKey(bindingKey, "/tmp/repo"), {
+    bindingKey,
+    workspaceRoot: "/tmp/repo",
+    runtimeContext: runtime.runtimeContext,
+    turn: {
+      async stop() {
+        return { stopped: true, forced: true };
+      },
+    },
+    status: "running",
+    pendingPermission: null,
+    lastToolUse: null,
+    lastProgress: null,
+  });
+
+  const replies = [];
+  runtime.sendReplyToNormalized = async (_normalized, text) => {
+    replies.push(text);
+  };
+
+  await runtime.handleStopCommand(normalized);
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /已强制停止当前任务/);
+});

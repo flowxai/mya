@@ -16,6 +16,7 @@ test("parseCommand recognizes /mya commands and leaves normal text as message", 
   assert.equal(parseCommand("/mya bind /tmp/demo"), "bind");
   assert.equal(parseCommand("/mya model sonnet"), "model");
   assert.equal(parseCommand("/mya effort high"), "effort");
+  assert.equal(parseCommand("/mya status"), "inspect_status");
   assert.equal(parseCommand("你好，帮我看下这个目录"), "message");
 });
 

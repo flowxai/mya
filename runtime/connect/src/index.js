@@ -964,6 +964,7 @@ function printHubOperatorSummary(runtimeStatus) {
 
 function createManagedChannelRuntime(label, runtime) {
   let startPromise = null;
+  let readyPromise = null;
 
   return {
     async start() {
@@ -975,7 +976,17 @@ function createManagedChannelRuntime(label, runtime) {
             throw error;
           });
         void startPromise.catch(() => {});
+        readyPromise = new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            resolve();
+          }, 50);
+          startPromise.catch((error) => {
+            clearTimeout(timer);
+            reject(error);
+          });
+        });
       }
+      return readyPromise;
     },
     async stop() {
       if (typeof runtime.stop === "function") {
@@ -986,14 +997,9 @@ function createManagedChannelRuntime(label, runtime) {
 }
 
 function buildHubSupervisorSpawnSpec() {
-  const entryScript = process.argv[1];
-  if (!entryScript) {
-    throw new Error("无法定位 mya 渠道 runtime 入口，无法启动后台 service。");
-  }
-
   return {
     command: process.execPath,
-    args: [entryScript, "hub", "start"],
+    args: [__filename, "hub", "start"],
     options: {
       detached: true,
       stdio: "ignore",
@@ -1952,9 +1958,18 @@ function printWechatMigrationSummary(summary) {
   console.log(`.env: ${summary.copiedEnvFile ? "copied" : "kept"}`);
 }
 
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`${getConnectLogPrefix()} ${error.message}`);
+    process.exit(1);
+  });
+}
+
 module.exports = {
   buildHelpText,
+  buildHubSupervisorSpawnSpec,
   buildHubSupervisorStatusSnapshot,
+  createManagedChannelRuntime,
   createHubTaskDispatchBridge,
   isHubStatusHeartbeatFresh,
   main,

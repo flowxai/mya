@@ -33,7 +33,7 @@ export function getSteps(): Step[] {
     },
     {
       key: 'claudemd',
-      text: `Run /init to create a CLAUDE.md file with instructions for ${APP_COMMAND_NAME}`,
+      text: `Run /init to create a project instructions file for ${APP_COMMAND_NAME}`,
       isComplete: hasClaudeMd,
       isCompletable: true,
       isEnabled: !isWorkspaceDirEmpty,
