@@ -27,9 +27,62 @@ cd mya
 
 ### 2. 终端直接使用
 
+`mya` 并不要求某个固定模型厂商。  
+只要你的网关或服务端支持 **`v1/messages`** 这条接口，就可以接进来。
+
+终端全局最重要的就是这 3 个配置：
+
+- `url`
+- `key`
+- `model`
+
+当前为了兼容已有调用链，环境变量名仍然是：
+
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
+export ANTHROPIC_BASE_URL="https://your-endpoint"
+export ANTHROPIC_API_KEY="sk-..."
+export ANTHROPIC_MODEL="your-model"
 mya
+```
+
+注意：
+
+- `ANTHROPIC_BASE_URL` 填的是服务根地址，不是 `/v1/messages`
+- 只要该地址真正支持 `POST /v1/messages`，模型不局限于某一家
+- 如果某个端点只支持 OpenAI 的 `/chat/completions`，那这版 `mya` 不能直接接它
+
+你也可以不配环境变量，直接写全局配置文件：
+
+```text
+~/.mya/settings.json
+```
+
+示例：
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://your-endpoint",
+    "ANTHROPIC_API_KEY": "sk-...",
+    "ANTHROPIC_MODEL": "your-model"
+  }
+}
+```
+
+如果只想让某个 bot 用自己的模型配置，就改这个 bot 的：
+
+```text
+~/.mya/connect/hub/profiles/<bot-id>/profile.json
+```
+
+示例：
+
+```json
+{
+  "defaultModel": "your-model",
+  "baseUrl": "https://your-endpoint",
+  "apiKey": "sk-..."
+}
 ```
 
 单次提问：
@@ -170,11 +223,22 @@ mya serve
 
 - bot 名称
 - 默认工作区
-- 默认模型
-- bot 自己的 `baseURL` / `apiKey`
+- bot 自己的 `model` / `baseUrl` / `apiKey`
 - 渠道绑定
 - 权限模式
 - 调度和唤醒规则
+
+bot 的模型配置本质上也是这 3 项：
+
+- `baseUrl`
+- `apiKey`
+- `defaultModel`
+
+只要这个 `baseUrl` 背后的服务支持 `v1/messages`，这个 bot 就能接入。
+也就是说，除了环境变量以外，你完全可以直接改：
+
+- 全局：`~/.mya/settings.json`
+- 单 bot：`~/.mya/connect/hub/profiles/<bot-id>/profile.json`
 
 默认情况下你不需要先手改它。先用：
 
@@ -237,6 +301,44 @@ mya serve
 - 飞书 bot
 - 定时唤醒
 - 后台任务
+
+定时任务和后台任务完成后，会把结果主动发回这个 bot 最近活跃的微信或飞书会话。
+
+创建定时任务时，直接改这个 bot 的 `profile.json`：
+
+1. 在 `wakePolicy.schedules` 里新增一条规则
+2. 常用字段是 `cron`、`prompt` 或 `command`、`workspaceRoot`、`taskType`、`metadata`
+3. cron 按本地时间匹配
+4. 保存后执行 `mya serve restart`
+
+示例：
+
+```json
+{
+  "wakePolicy": {
+    "schedules": [
+      {
+        "name": "daily-mail-report",
+        "cron": "0 9 * * *",
+        "command": "cd /absolute/workspace/path/mail_service && python3 on_wake.py",
+        "workspaceRoot": "/absolute/workspace/path",
+        "taskType": "scheduled_job",
+        "metadata": {
+          "source": "mail-report"
+        }
+      }
+    ]
+  }
+}
+```
+
+如果这是邮件类定时任务，汇报标准也要写清楚。至少要让 bot 说明：
+
+1. 扫描了多少邮件、筛选出了多少封重点邮件
+2. 每封重点邮件的发件人、主题、时间、为什么重要
+3. 有没有截止时间、会议、缴费、作业、回复要求、附件或链接
+4. 你接下来需要采取什么动作
+5. 如果没有重点邮件，也要明确说明判定依据
 
 高级排障命令仍然保留，但不是主流程：
 

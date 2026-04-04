@@ -46,6 +46,7 @@ class HubScheduler {
           workspaceRoot: rule.workspaceRoot,
           schedule: rule.cron,
           prompt: normalizeText(rule.prompt),
+          command: normalizeText(rule.command),
           workerType: normalizeText(rule.workerType),
           taskType: normalizeText(rule.taskType) || "scheduled_job",
           metadata: isRecord(rule.metadata) ? { ...rule.metadata } : {},

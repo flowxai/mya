@@ -48,6 +48,7 @@ const {
   buildBotWorkStatusText,
   summarizeText,
 } = require("../shared/bot-status");
+const { resolveEffectiveMyaParams } = require("../shared/mya-params");
 
 const SESSION_EXPIRED_ERRCODE = -14;
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
@@ -359,7 +360,6 @@ class WechatRuntime {
     }
 
     const bindingKey = this.sessionStore.buildBindingKey(normalized);
-    this.applyDefaultMyaParamsOnBind(bindingKey, workspaceRoot);
     this.sessionStore.setActiveWorkspaceRoot(bindingKey, workspaceRoot);
     const sessionId = this.sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
     const text = sessionId
@@ -711,7 +711,6 @@ class WechatRuntime {
     let workspaceRoot = this.sessionStore.getActiveWorkspaceRoot(bindingKey);
     if (!workspaceRoot && this.config.defaultWorkspaceRoot) {
       workspaceRoot = normalizeWorkspacePath(this.config.defaultWorkspaceRoot);
-      this.applyDefaultMyaParamsOnBind(bindingKey, workspaceRoot);
       this.sessionStore.setActiveWorkspaceRoot(bindingKey, workspaceRoot);
     }
 
@@ -727,27 +726,14 @@ class WechatRuntime {
     return { bindingKey, workspaceRoot };
   }
 
-  applyDefaultMyaParamsOnBind(bindingKey, workspaceRoot) {
-    const current = this.sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
-    if (current.model || current.effort) {
-      return;
-    }
-
-    this.sessionStore.setCodexParamsForWorkspace(bindingKey, workspaceRoot, {
-      model: this.config.defaultModel || "",
-      effort: this.config.defaultEffort || "",
-    });
-  }
-
   getMyaParamsForWorkspace(bindingKey, workspaceRoot) {
-    const current = this.sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
-    if (current.model || current.effort) {
-      return current;
-    }
-    return {
-      model: this.config.defaultModel || "",
-      effort: this.config.defaultEffort || "",
-    };
+    return resolveEffectiveMyaParams({
+      stored: this.sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot),
+      defaults: {
+        model: this.config.defaultModel || "",
+        effort: this.config.defaultEffort || "",
+      },
+    });
   }
 
   async runConversation({ bindingKey, workspaceRoot, normalized }) {
@@ -998,6 +984,8 @@ class WechatRuntime {
       workspaceId: normalized.workspaceId,
       accountId: normalized.accountId,
       senderId: normalized.senderId,
+      chatId: normalized.chatId,
+      contextToken: normalized.contextToken || this.contextTokenByUserId.get(normalized.senderId) || "",
     };
   }
 
@@ -1141,6 +1129,49 @@ class WechatRuntime {
     }
   }
 
+  async notifyTaskCompletion(task = {}) {
+    const target = this.resolveNotificationTarget(task.workspaceRoot);
+    if (!target) {
+      return {
+        delivered: false,
+        detail: "no wechat recipient",
+      };
+    }
+
+    await this.sendReplyToUser(
+      target.userId,
+      buildScheduledTaskNotificationText(this.runtimeContext.profileId || "default", task),
+      target.contextToken,
+    );
+    return {
+      delivered: true,
+      detail: `wechat:${target.userId}`,
+    };
+  }
+
+  resolveNotificationTarget(workspaceRoot) {
+    const accountId = normalizeWechatRuntimeText(this.account?.accountId || this.config.accountId);
+    const match = this.sessionStore.findLatestBinding({
+      profileId: this.runtimeContext.profileId,
+      accountId,
+      workspaceRoot,
+    });
+    if (!match?.binding) {
+      return null;
+    }
+
+    const userId = normalizeWechatRuntimeText(match.binding.senderId);
+    const contextToken = normalizeWechatRuntimeText(match.binding.contextToken || this.contextTokenByUserId.get(userId));
+    if (!userId || !contextToken) {
+      return null;
+    }
+
+    return {
+      userId,
+      contextToken,
+    };
+  }
+
   resolveWorkspaceFilePath(workspaceRoot, requestedPath) {
     const normalizedWorkspaceRoot = normalizeWorkspacePath(workspaceRoot);
     const rawRequestedPath = String(requestedPath || "").trim();
@@ -1221,6 +1252,32 @@ function shouldRecreateSession(error) {
     || message.includes("failed to resume session")
     || message.includes("no conversation found")
   );
+}
+
+function buildScheduledTaskNotificationText(botName, task) {
+  const summary = normalizeWechatRuntimeText(task?.lastOutputSummary) || (task?.state === "failed" ? "后台任务失败。" : "后台任务已完成。");
+  const trigger = normalizeWechatRuntimeText(task?.trigger) || "schedule";
+  const workspaceRoot = normalizeWorkspacePath(task?.workspaceRoot);
+  const workspaceLabel = workspaceRoot ? path.basename(workspaceRoot) || workspaceRoot : "(unknown)";
+  const taskState = normalizeWechatRuntimeText(task?.state).toLowerCase() === "failed" ? "FAILED" : "COMPLETED";
+  const taskId = normalizeWechatRuntimeText(task?.taskId) || "(none)";
+  const updatedAt = normalizeWechatRuntimeText(task?.updatedAt) || new Date().toISOString();
+  const command = normalizeWechatRuntimeText(task?.command);
+
+  return [
+    "[mya scheduled task report]",
+    "",
+    `BOT        ${normalizeWechatRuntimeText(botName) || "default"}`,
+    `TRIGGER    ${trigger}`,
+    `WORKSPACE  ${workspaceLabel}`,
+    `TASK ID    ${taskId}`,
+    `RESULT     ${taskState}`,
+    `UPDATED    ${updatedAt}`,
+    ...(command ? [`COMMAND    ${command}`] : []),
+    "",
+    "REPORT",
+    summary,
+  ].join("\n");
 }
 
 function sleep(ms) {

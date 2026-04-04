@@ -48,6 +48,37 @@ test("HubScheduler dispatches a profile wake run on matching cron rule", async (
   assert.equal(registry.list()[0].profileId, "ops-bot");
 });
 
+test("HubScheduler matches cron rules in local time and forwards command-based schedules", async () => {
+  const calls = [];
+  const filePath = path.join(os.tmpdir(), `mya-connect-hub-scheduler-${Date.now()}-${Math.random()}.json`);
+  const registry = new HubTaskRegistry({ filePath });
+  const scheduler = new HubScheduler({
+    registry,
+    dispatcher: {
+      async dispatch(payload) {
+        calls.push(payload);
+      },
+    },
+  });
+
+  scheduler.load([
+    {
+      profileId: "mail-bot",
+      kind: "schedule",
+      cron: "35 11 * * *",
+      workspaceRoot: "/tmp/mail",
+      command: "python3 on_wake.py",
+      taskType: "scheduled_job",
+    },
+  ]);
+
+  await scheduler.tick(new Date("2026-04-04T11:35:00+08:00"));
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].profileId, "mail-bot");
+  assert.equal(calls[0].command, "python3 on_wake.py");
+});
+
 test("HubScheduler dispatches queued event-file entries and clears the source file", async () => {
   const calls = [];
   const registryPath = path.join(os.tmpdir(), `mya-connect-hub-scheduler-${Date.now()}-${Math.random()}.json`);

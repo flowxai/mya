@@ -1,5 +1,6 @@
 const path = require("path");
 const {
+  resolveConnectDefaultModel,
   resolveConnectPermissionMode,
   readUserSettings,
 } = require("../../shared/settings");
@@ -23,7 +24,12 @@ function readFeishuConfig(mode) {
     workspaceAllowlist: readListEnv(["MYA_CONNECT_FEISHU_WORKSPACE_ALLOWLIST"]),
     defaultWorkspaceRoot: readTextEnv(["MYA_CONNECT_FEISHU_DEFAULT_WORKSPACE"]),
     defaultWorkspaceId: readTextEnv(["MYA_CONNECT_FEISHU_DEFAULT_WORKSPACE_ID"]) || "default",
-    defaultModel: readTextEnv(["MYA_CONNECT_FEISHU_DEFAULT_MODEL"]) || "sonnet",
+    defaultModel: resolveConnectDefaultModel({
+      explicitValues: [
+        readTextEnv(["MYA_CONNECT_FEISHU_DEFAULT_MODEL"]),
+      ],
+      settings: userSettings,
+    }),
     defaultEffort: readTextEnv(["MYA_CONNECT_FEISHU_DEFAULT_EFFORT"]),
     permissionMode: resolveConnectPermissionMode({
       envValues: [

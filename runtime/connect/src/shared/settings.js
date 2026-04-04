@@ -78,10 +78,34 @@ function resolveConnectPermissionMode({
   return configured || normalizePermissionMode(fallback) || "dontAsk";
 }
 
+function resolveConnectDefaultModel({
+  explicitValues = [],
+  settings = readUserSettings(),
+  fallback = "",
+} = {}) {
+  for (const value of explicitValues) {
+    const normalized = normalizeText(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  const configured =
+    normalizeText(settings?.env?.ANTHROPIC_MODEL) ||
+    normalizeText(settings?.model);
+
+  return configured || normalizeText(fallback);
+}
+
+function normalizeText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 module.exports = {
   ALLOWED_PERMISSION_MODES,
   getRuntimeConfigHomeDir,
   getUserSettingsPath,
+  resolveConnectDefaultModel,
   normalizePermissionMode,
   readUserSettings,
   resolveConnectPermissionMode,

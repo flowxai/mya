@@ -46,6 +46,51 @@ class SessionStore {
     return this.state.bindings[bindingKey] || null;
   }
 
+  findLatestBinding(scope = {}) {
+    const profileId = normalizeValue(scope.profileId);
+    const accountId = normalizeValue(scope.accountId);
+    const workspaceRoot = normalizeValue(scope.workspaceRoot);
+
+    const matches = Object.entries(this.state.bindings)
+      .map(([bindingKey, binding]) => ({
+        bindingKey,
+        binding,
+      }))
+      .filter(({ bindingKey, binding }) => {
+        if (!binding || typeof binding !== "object") {
+          return false;
+        }
+        if (profileId && !bindingKey.startsWith(`${profileId}:`)) {
+          return false;
+        }
+        if (accountId && normalizeValue(binding.accountId) !== accountId) {
+          return false;
+        }
+        if (!workspaceRoot) {
+          return true;
+        }
+
+        if (normalizeValue(binding.activeWorkspaceRoot) === workspaceRoot) {
+          return true;
+        }
+
+        return Object.prototype.hasOwnProperty.call(getThreadMap(binding), workspaceRoot);
+      })
+      .sort((left, right) => (
+        Date.parse(normalizeValue(right.binding?.updatedAt) || 0)
+        - Date.parse(normalizeValue(left.binding?.updatedAt) || 0)
+      ));
+
+    if (!matches.length) {
+      return null;
+    }
+
+    return {
+      bindingKey: matches[0].bindingKey,
+      binding: { ...matches[0].binding },
+    };
+  }
+
   listWorkspaceRoots(bindingKey) {
     const binding = this.getBinding(bindingKey) || {};
     return Object.keys(getThreadMap(binding)).sort((left, right) => left.localeCompare(right));
@@ -158,19 +203,20 @@ class SessionStore {
   getCodexParamsForWorkspace(bindingKey, workspaceRoot) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
-      return { model: "", effort: "" };
+      return { model: "", effort: "", source: "" };
     }
     const raw = this.state.bindings[bindingKey]?.codexParamsByWorkspaceRoot?.[normalizedWorkspaceRoot];
     if (!raw || typeof raw !== "object") {
-      return { model: "", effort: "" };
+      return { model: "", effort: "", source: "" };
     }
     return {
       model: normalizeValue(raw.model),
       effort: normalizeValue(raw.effort),
+      source: normalizeValue(raw.source),
     };
   }
 
-  setCodexParamsForWorkspace(bindingKey, workspaceRoot, { model, effort }) {
+  setCodexParamsForWorkspace(bindingKey, workspaceRoot, { model, effort, source = "user" }) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
       return this.getBinding(bindingKey);
@@ -182,6 +228,7 @@ class SessionStore {
       [normalizedWorkspaceRoot]: {
         model: normalizeValue(model),
         effort: normalizeValue(effort),
+        source: normalizeValue(source),
       },
     };
 

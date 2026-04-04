@@ -96,6 +96,37 @@ class RuntimeRegistry {
     };
   }
 
+  async notifyProfile(profileId, eventName, payload) {
+    const normalizedProfileId = String(profileId || "").trim();
+    const normalizedEventName = String(eventName || "").trim();
+    if (!normalizedProfileId || !normalizedEventName) {
+      return [];
+    }
+
+    const notifications = [];
+    for (const entry of this.entries.values()) {
+      if (String(entry.profileId || "").trim() !== normalizedProfileId) {
+        continue;
+      }
+
+      const handler = entry.runtime?.[normalizedEventName];
+      if (typeof handler !== "function") {
+        continue;
+      }
+
+      const result = await handler.call(entry.runtime, payload);
+      notifications.push({
+        key: entry.key,
+        profileId: entry.profileId,
+        type: entry.type,
+        accountId: entry.accountId,
+        result,
+      });
+    }
+
+    return notifications;
+  }
+
   async startEntry(entry) {
     try {
       if (typeof entry.runtime.start === "function") {

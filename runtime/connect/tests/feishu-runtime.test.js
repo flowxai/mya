@@ -323,3 +323,45 @@ test("FeishuRuntime stop confirms the running turn is actually stopped", async (
   assert.equal(replies.length, 1);
   assert.match(replies[0], /已强制停止当前任务/);
 });
+
+test("FeishuRuntime notifyTaskCompletion sends the summary to the latest bound chat", async () => {
+  const runtime = createRuntime({
+    appId: "cli_test",
+    profileContext: {
+      profileId: "mail-bot",
+    },
+  });
+  const bindingKey = "mail-bot:default:cli_test:user:ou_test_user";
+  const workspaceRoot = "/tmp/mail-bot";
+  const sent = [];
+
+  runtime.sessionStore.setThreadIdForWorkspace(bindingKey, workspaceRoot, "session-321", {
+    workspaceId: "default",
+    accountId: "cli_test",
+    senderId: "user:ou_test_user",
+    chatId: "oc_test_chat",
+  });
+  runtime.sendTextToChat = async (chatId, text) => {
+    sent.push({ chatId, text });
+  };
+
+  const result = await runtime.notifyTaskCompletion({
+    profileId: "mail-bot",
+    trigger: "schedule",
+    workspaceRoot,
+    taskId: "task-321",
+    state: "completed",
+    updatedAt: "2026-04-04T04:14:04.367Z",
+    command: "python3 on_wake.py",
+    lastOutputSummary: "日报已发送",
+  });
+
+  assert.equal(result.delivered, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chatId, "oc_test_chat");
+  assert.match(sent[0].text, /\[mya scheduled task report\]/);
+  assert.match(sent[0].text, /TASK ID\s+task-321/);
+  assert.match(sent[0].text, /COMMAND\s+python3 on_wake\.py/);
+  assert.match(sent[0].text, /REPORT/);
+  assert.match(sent[0].text, /日报已发送/);
+});

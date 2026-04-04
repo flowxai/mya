@@ -34,6 +34,12 @@ function createIsolatedHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mya-connect-config-home-"));
 }
 
+function writeSettings(homeDir, settings) {
+  const targetDir = path.join(homeDir, ".mya");
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.writeFileSync(path.join(targetDir, "settings.json"), JSON.stringify(settings, null, 2));
+}
+
 test("readWechatConfig uses mya defaults", () => {
   delete require.cache[require.resolve(WECHAT_CONFIG_PATH)];
   const { readWechatConfig } = require(WECHAT_CONFIG_PATH);
@@ -147,6 +153,53 @@ test("readFeishuConfig honors explicit overrides", () => {
       assert.equal(config.enableGroupAtMessages, false);
       assert.equal(config.replyInThread, true);
       assert.equal(config.permissionMode, "default");
+    }
+  );
+});
+
+test("readWechatConfig inherits the global default model from settings when no channel override exists", () => {
+  const homeDir = createIsolatedHome();
+  writeSettings(homeDir, {
+    env: {
+      ANTHROPIC_MODEL: "kimi-k2.5",
+    },
+  });
+
+  delete require.cache[require.resolve(WECHAT_CONFIG_PATH)];
+  const { readWechatConfig } = require(WECHAT_CONFIG_PATH);
+
+  withEnv(
+    {
+      HOME: homeDir,
+      MYA_CONNECT_WECHAT_DEFAULT_MODEL: "",
+      MYA_WECHAT_DEFAULT_MODEL: "",
+    },
+    () => {
+      const config = readWechatConfig("start");
+      assert.equal(config.defaultModel, "kimi-k2.5");
+    }
+  );
+});
+
+test("readFeishuConfig inherits the global default model from settings when no channel override exists", () => {
+  const homeDir = createIsolatedHome();
+  writeSettings(homeDir, {
+    env: {
+      ANTHROPIC_MODEL: "kimi-k2.5",
+    },
+  });
+
+  delete require.cache[require.resolve(FEISHU_CONFIG_PATH)];
+  const { readFeishuConfig } = require(FEISHU_CONFIG_PATH);
+
+  withEnv(
+    {
+      HOME: homeDir,
+      MYA_CONNECT_FEISHU_DEFAULT_MODEL: "",
+    },
+    () => {
+      const config = readFeishuConfig("start");
+      assert.equal(config.defaultModel, "kimi-k2.5");
     }
   );
 });

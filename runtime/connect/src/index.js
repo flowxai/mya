@@ -993,6 +993,12 @@ function createManagedChannelRuntime(label, runtime) {
         await runtime.stop();
       }
     },
+    async notifyTaskCompletion(task) {
+      if (typeof runtime.notifyTaskCompletion !== "function") {
+        return null;
+      }
+      return runtime.notifyTaskCompletion(task);
+    },
   };
 }
 
@@ -1064,7 +1070,7 @@ function createWechatProfileRuntimeConfig({ profile, profileId, channel, account
       profile?.defaultWorkspaceId,
       baseConfig.defaultWorkspaceId
     ) || "default",
-    defaultModel: pickHubText(channel?.defaultModel, profile?.defaultModel, baseConfig.defaultModel) || "sonnet",
+    defaultModel: pickHubText(channel?.defaultModel, profile?.defaultModel, baseConfig.defaultModel),
     defaultEffort: pickHubText(channel?.defaultEffort, profile?.defaultEffort, baseConfig.defaultEffort),
     permissionMode: resolveConnectPermissionMode({
       explicitValues: [channel?.permissionMode, profile?.permissionMode],
@@ -1116,7 +1122,7 @@ function createFeishuProfileRuntimeConfig({ profile, profileId, channel, account
       profile?.defaultWorkspaceId,
       baseConfig.defaultWorkspaceId
     ) || "default",
-    defaultModel: pickHubText(channel?.defaultModel, profile?.defaultModel, baseConfig.defaultModel) || "sonnet",
+    defaultModel: pickHubText(channel?.defaultModel, profile?.defaultModel, baseConfig.defaultModel),
     defaultEffort: pickHubText(channel?.defaultEffort, profile?.defaultEffort, baseConfig.defaultEffort),
     permissionMode: resolveConnectPermissionMode({
       explicitValues: [channel?.permissionMode, profile?.permissionMode],
@@ -1193,6 +1199,7 @@ function createHubRuntimeSupervisor() {
   const taskRegistry = getHubTaskRegistry();
   const policyStore = getHubPolicyStore();
   const auditLog = getHubAuditLog();
+  const runtimeRegistry = new RuntimeRegistry();
 
   const factory = new ProfileRuntimeFactory({
     builders: {
@@ -1214,6 +1221,14 @@ function createHubRuntimeSupervisor() {
   const taskExecutor = new HubTaskExecutor({
     taskRegistry,
     auditLog,
+    completionNotifier: async ({ state, task }) => runtimeRegistry.notifyProfile(
+      task?.profileId,
+      "notifyTaskCompletion",
+      {
+        ...task,
+        state,
+      },
+    ),
   });
   const dispatchBridge = createHubTaskDispatchBridge({
     profileStore,
@@ -1233,7 +1248,7 @@ function createHubRuntimeSupervisor() {
     hubRuntime: new HubRuntime({
       profileStore,
       scheduler,
-      runtimeRegistry: new RuntimeRegistry(),
+      runtimeRegistry,
       profileRuntimeFactory: factory,
     }),
   };

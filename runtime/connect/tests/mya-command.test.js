@@ -258,7 +258,8 @@ test("top-level mya bots add creates a terminal bot and opens a bot-scoped mya s
     [normalizeMacTmpPath(workspaceDir)],
   );
   assert.match(instructions, /^# Review Bot/m);
-  assert.match(instructions, /bot-specific CLAUDE\.md/i);
+  assert.match(instructions, /bot-specific operating guidance/i);
+  assert.match(instructions, /^## Runtime Capabilities$/m);
 });
 
 test("top-level mya bots add reuses an existing bot profile without overwriting identity fields", () => {

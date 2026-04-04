@@ -120,6 +120,50 @@ test("RuntimeRegistry reconciles runtimes and reuses existing entries with the s
   ]);
 });
 
+test("RuntimeRegistry can notify runtimes scoped to a profile", async () => {
+  const notifications = [];
+  const registry = new RuntimeRegistry();
+
+  await registry.reconcile([
+    {
+      key: "ops:wechat:wx-main",
+      profileId: "ops",
+      type: "wechat",
+      accountId: "wx-main",
+      runtime: {
+        async start() {},
+        async stop() {},
+        async notifyTaskCompletion(task) {
+          notifications.push(["ops", task.taskId]);
+          return { delivered: true };
+        },
+      },
+    },
+    {
+      key: "review:feishu:review-app",
+      profileId: "review",
+      type: "feishu",
+      accountId: "review-app",
+      runtime: {
+        async start() {},
+        async stop() {},
+        async notifyTaskCompletion(task) {
+          notifications.push(["review", task.taskId]);
+          return { delivered: true };
+        },
+      },
+    },
+  ]);
+
+  const results = await registry.notifyProfile("ops", "notifyTaskCompletion", {
+    taskId: "task-123",
+  });
+
+  assert.deepEqual(notifications, [["ops", "task-123"]]);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].profileId, "ops");
+});
+
 test("HubRuntime supervises runtimes from the profile store lifecycle", async () => {
   const events = [];
   const profileStore = {

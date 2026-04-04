@@ -21,6 +21,7 @@ function normalizeScheduleRule(rule) {
     cron: normalizeText(rule.cron),
     eventFile: normalizeEventFile(rule.eventFile),
     prompt: normalizeText(rule.prompt),
+    command: normalizeText(rule.command),
     workerType: normalizeText(rule.workerType),
     taskType: normalizeText(rule.taskType),
     metadata: isRecord(rule.metadata) ? { ...rule.metadata } : {},
@@ -60,18 +61,18 @@ function matchesCronDate(cronExpression, date) {
     return false;
   }
 
-  const utcMinute = currentDate.getUTCMinutes();
-  const utcHour = currentDate.getUTCHours();
-  const utcDayOfMonth = currentDate.getUTCDate();
-  const utcMonth = currentDate.getUTCMonth() + 1;
-  const utcDayOfWeek = currentDate.getUTCDay();
+  const localMinute = currentDate.getMinutes();
+  const localHour = currentDate.getHours();
+  const localDayOfMonth = currentDate.getDate();
+  const localMonth = currentDate.getMonth() + 1;
+  const localDayOfWeek = currentDate.getDay();
 
   return (
-    matchesCronField(fields[0], utcMinute, 0, 59)
-    && matchesCronField(fields[1], utcHour, 0, 23)
-    && matchesCronField(fields[2], utcDayOfMonth, 1, 31)
-    && matchesCronField(fields[3], utcMonth, 1, 12)
-    && matchesCronField(fields[4], utcDayOfWeek, 0, 6)
+    matchesCronField(fields[0], localMinute, 0, 59)
+    && matchesCronField(fields[1], localHour, 0, 23)
+    && matchesCronField(fields[2], localDayOfMonth, 1, 31)
+    && matchesCronField(fields[3], localMonth, 1, 12)
+    && matchesCronField(fields[4], localDayOfWeek, 0, 6)
   );
 }
 

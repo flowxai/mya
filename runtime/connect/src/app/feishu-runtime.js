@@ -42,6 +42,7 @@ const {
   buildBotWorkStatusText,
   summarizeText,
 } = require("../shared/bot-status");
+const { resolveEffectiveMyaParams } = require("../shared/mya-params");
 
 const ALLOWED_EFFORTS = new Set(["low", "medium", "high", "max"]);
 const TOKEN_ENDPOINT = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
@@ -275,7 +276,6 @@ class FeishuRuntime {
     }
 
     const bindingKey = this.sessionStore.buildBindingKey(normalized);
-    this.applyDefaultMyaParamsOnBind(bindingKey, workspaceRoot);
     this.sessionStore.setActiveWorkspaceRoot(bindingKey, workspaceRoot);
     const sessionId = this.sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
     const text = sessionId
@@ -626,7 +626,6 @@ class FeishuRuntime {
     let workspaceRoot = this.sessionStore.getActiveWorkspaceRoot(bindingKey);
     if (!workspaceRoot && this.config.defaultWorkspaceRoot) {
       workspaceRoot = normalizeWorkspacePath(this.config.defaultWorkspaceRoot);
-      this.applyDefaultMyaParamsOnBind(bindingKey, workspaceRoot);
       this.sessionStore.setActiveWorkspaceRoot(bindingKey, workspaceRoot);
     }
 
@@ -642,27 +641,14 @@ class FeishuRuntime {
     return { bindingKey, workspaceRoot };
   }
 
-  applyDefaultMyaParamsOnBind(bindingKey, workspaceRoot) {
-    const current = this.sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
-    if (current.model || current.effort) {
-      return;
-    }
-
-    this.sessionStore.setCodexParamsForWorkspace(bindingKey, workspaceRoot, {
-      model: this.config.defaultModel || "",
-      effort: this.config.defaultEffort || "",
-    });
-  }
-
   getMyaParamsForWorkspace(bindingKey, workspaceRoot) {
-    const current = this.sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
-    if (current.model || current.effort) {
-      return current;
-    }
-    return {
-      model: this.config.defaultModel || "",
-      effort: this.config.defaultEffort || "",
-    };
+    return resolveEffectiveMyaParams({
+      stored: this.sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot),
+      defaults: {
+        model: this.config.defaultModel || "",
+        effort: this.config.defaultEffort || "",
+      },
+    });
   }
 
   async runConversation({ bindingKey, workspaceRoot, normalized }) {
@@ -874,6 +860,9 @@ class FeishuRuntime {
       workspaceId: normalized.workspaceId,
       accountId: normalized.accountId,
       senderId: normalized.senderId,
+      chatId: normalized.chatId,
+      threadKey: normalized.threadKey,
+      senderOpenId: normalized.senderOpenId,
     };
   }
 
@@ -976,6 +965,70 @@ class FeishuRuntime {
       const detail = payload.msg || `${response.status} ${response.statusText}`;
       throw new Error(`飞书回复失败: ${detail}`);
     }
+  }
+
+  async sendTextToChat(chatId, text) {
+    const tenantAccessToken = await this.getTenantAccessToken();
+    const response = await fetch(
+      "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tenantAccessToken}`,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify({
+          receive_id: chatId,
+          content: JSON.stringify({ text }),
+          msg_type: "text",
+          uuid: crypto.randomUUID(),
+        }),
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.code !== 0) {
+      const detail = payload.msg || `${response.status} ${response.statusText}`;
+      throw new Error(`飞书主动发送失败: ${detail}`);
+    }
+  }
+
+  async notifyTaskCompletion(task = {}) {
+    const target = this.resolveNotificationTarget(task.workspaceRoot);
+    if (!target) {
+      return {
+        delivered: false,
+        detail: "no feishu recipient",
+      };
+    }
+
+    await this.sendTextToChat(
+      target.chatId,
+      buildScheduledTaskNotificationText(this.runtimeContext.profileId || "default", task),
+    );
+    return {
+      delivered: true,
+      detail: `feishu:${target.chatId}`,
+    };
+  }
+
+  resolveNotificationTarget(workspaceRoot) {
+    const accountId = normalizeFeishuRuntimeText(this.config.appId);
+    const match = this.sessionStore.findLatestBinding({
+      profileId: this.runtimeContext.profileId,
+      accountId,
+      workspaceRoot,
+    });
+    if (!match?.binding) {
+      return null;
+    }
+
+    const chatId = normalizeFeishuRuntimeText(match.binding.chatId)
+      || extractChatIdFromSender(match.binding.senderId);
+    if (!chatId) {
+      return null;
+    }
+
+    return { chatId };
   }
 
   resolveWorkspaceFilePath(workspaceRoot, requestedPath) {
@@ -1088,6 +1141,40 @@ function shouldRecreateSession(error) {
     || message.includes("failed to resume session")
     || message.includes("no conversation found")
   );
+}
+
+function extractChatIdFromSender(senderId) {
+  const normalizedSenderId = normalizeFeishuRuntimeText(senderId);
+  if (normalizedSenderId.startsWith("chat:")) {
+    return normalizedSenderId.slice("chat:".length);
+  }
+  return "";
+}
+
+function buildScheduledTaskNotificationText(botName, task) {
+  const summary = normalizeFeishuRuntimeText(task?.lastOutputSummary) || (task?.state === "failed" ? "后台任务失败。" : "后台任务已完成。");
+  const trigger = normalizeFeishuRuntimeText(task?.trigger) || "schedule";
+  const workspaceRoot = normalizeWorkspacePath(task?.workspaceRoot);
+  const workspaceLabel = workspaceRoot ? path.basename(workspaceRoot) || workspaceRoot : "(unknown)";
+  const taskState = normalizeFeishuRuntimeText(task?.state).toLowerCase() === "failed" ? "FAILED" : "COMPLETED";
+  const taskId = normalizeFeishuRuntimeText(task?.taskId) || "(none)";
+  const updatedAt = normalizeFeishuRuntimeText(task?.updatedAt) || new Date().toISOString();
+  const command = normalizeFeishuRuntimeText(task?.command);
+
+  return [
+    "[mya scheduled task report]",
+    "",
+    `BOT        ${normalizeFeishuRuntimeText(botName) || "default"}`,
+    `TRIGGER    ${trigger}`,
+    `WORKSPACE  ${workspaceLabel}`,
+    `TASK ID    ${taskId}`,
+    `RESULT     ${taskState}`,
+    `UPDATED    ${updatedAt}`,
+    ...(command ? [`COMMAND    ${command}`] : []),
+    "",
+    "REPORT",
+    summary,
+  ].join("\n");
 }
 
 module.exports = { FeishuRuntime };

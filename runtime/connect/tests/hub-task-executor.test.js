@@ -45,6 +45,40 @@ test("HubTaskExecutor dispatches a background task and persists the completed st
   assert.equal(record.lastOutputSummary, "巡检完成");
 });
 
+test("HubTaskExecutor notifies channel runtimes after task completion", async () => {
+  const filePath = path.join(os.tmpdir(), `mya-connect-hub-executor-${Date.now()}-${Math.random()}.json`);
+  const taskRegistry = new HubTaskRegistry({ filePath });
+  const notifications = [];
+  const executor = new HubTaskExecutor({
+    taskRegistry,
+    completionNotifier(event) {
+      notifications.push(event);
+      return {
+        detail: "notified",
+      };
+    },
+    async runTask() {
+      return {
+        sessionId: "session-456",
+        result: "日报已发送",
+      };
+    },
+  });
+
+  const record = await executor.dispatch({
+    profileId: "mail-bot",
+    trigger: "schedule",
+    workspaceRoot: "/workspace/mail",
+    prompt: "生成日报并通知用户。",
+  });
+
+  assert.equal(record.state, "completed");
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].state, "completed");
+  assert.equal(notifications[0].task.profileId, "mail-bot");
+  assert.equal(notifications[0].task.lastOutputSummary, "日报已发送");
+});
+
 test("HubTaskExecutor marks tasks as failed when the task runner throws", async () => {
   const filePath = path.join(os.tmpdir(), `mya-connect-hub-executor-${Date.now()}-${Math.random()}.json`);
   const taskRegistry = new HubTaskRegistry({ filePath });
@@ -85,6 +119,28 @@ test("buildHubTaskPrompt creates a default instruction when the payload omits pr
   assert.match(prompt, /schedule/);
   assert.match(prompt, /\/workspace\/ops/);
   assert.match(prompt, /nightly-check/);
+});
+
+test("buildHubTaskPrompt turns command-based schedules into an executable instruction", () => {
+  const prompt = buildHubTaskPrompt({
+    profileId: "mail-bot",
+    trigger: "schedule",
+    workspaceRoot: "/workspace/mail",
+    command: "cd /workspace/mail && python3 on_wake.py",
+  });
+
+  assert.match(prompt, /mail-bot/);
+  assert.match(prompt, /\/workspace\/mail/);
+  assert.match(prompt, /python3 on_wake\.py/);
+  assert.match(prompt, /执行这个命令/);
+  assert.match(prompt, /详细中文汇报/);
+  assert.match(prompt, /关键结果\/统计数字/);
+  assert.match(prompt, /邮件类任务时/);
+  assert.match(prompt, /逐封说明/);
+  assert.match(prompt, /发件人/);
+  assert.match(prompt, /主题/);
+  assert.match(prompt, /时间/);
+  assert.match(prompt, /需要采取的动作/);
 });
 
 test("HubTaskExecutor can drive a real stream-json turn and persist resumable session state", async () => {

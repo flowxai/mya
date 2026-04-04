@@ -99,13 +99,23 @@ bot 的底层定义仍然是一份 profile：
 
 ## 最小渠道 bot
 
+bot 的模型配置本质上就是：
+
+- `baseUrl`
+- `apiKey`
+- `defaultModel`
+
+只要 `baseUrl` 背后的服务支持 `POST /v1/messages`，这个 bot 就能接入。
+
 一个最小飞书 bot：
 
 ```json
 {
   "profileId": "review-bot",
   "name": "Review Bot",
-  "defaultModel": "sonnet",
+  "defaultModel": "your-model",
+  "baseUrl": "https://your-endpoint",
+  "apiKey": "sk-...",
   "permissionMode": "plan",
   "defaultWorkspaceRoot": "/absolute/path/to/repo",
   "workspaceAllowlist": ["/absolute/path/to/repo"],
@@ -126,6 +136,9 @@ bot 的底层定义仍然是一份 profile：
 {
   "profileId": "ops-bot",
   "name": "Ops Bot",
+  "defaultModel": "your-model",
+  "baseUrl": "https://your-endpoint",
+  "apiKey": "sk-...",
   "permissionMode": "plan",
   "defaultWorkspaceRoot": "/absolute/path/to/repo",
   "workspaceAllowlist": ["/absolute/path/to/repo"],
@@ -215,24 +228,48 @@ mya serve stop
 
 bot 可以通过 `wakePolicy` 自动醒来。
 
+创建步骤：
+
+1. 打开这个 bot 的 `profile.json`
+2. 在 `wakePolicy.schedules` 中新增一条规则
+3. 常用字段：
+   `cron`、`prompt` 或 `command`、`workspaceRoot`、`taskType`、`metadata`
+4. cron 按本地时间匹配
+5. 保存后执行 `mya serve restart`
+6. 任务完成后，结果会主动推送回这个 bot 最近活跃的微信或飞书会话
+
 示例：
 
 ```json
 {
-  "profileId": "review-bot",
+  "profileId": "mail-bot",
   "wakePolicy": {
     "schedules": [
       {
-        "id": "review-prs",
+        "id": "daily-mail-report",
         "cron": "0 9 * * *",
-        "prompt": "检查新的 PR，列出主要风险和建议。"
+        "command": "cd /absolute/workspace/path/mail_service && python3 on_wake.py",
+        "workspaceRoot": "/absolute/workspace/path",
+        "taskType": "scheduled_job",
+        "metadata": {
+          "source": "mail-report"
+        }
       }
     ]
   }
 }
 ```
 
+如果这是邮件类定时任务，建议把汇报标准固定成：
+
+1. 先说明扫描范围和筛选结果
+2. 按重要程度逐封说明重点邮件
+3. 每封邮件至少交代：发件人、主题、时间、为什么重要、截止时间或时间要求、需要采取的动作
+4. 如果正文里有关键细节、附件、链接、课程安排、缴费、作业或会议要求，要明确写出来
+5. 如果没有重点邮件，也要说明为什么无需处理
+
 `mya serve` 会读取这些规则并把它们派发成后台任务。
+任务完成后，如果这个 bot 最近在微信或飞书里有活跃会话，摘要会主动推送回对应渠道。
 
 ## 隔离逻辑
 
