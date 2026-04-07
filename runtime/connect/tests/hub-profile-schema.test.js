@@ -28,6 +28,11 @@ test("normalizeProfile canonicalizes workers, memory policy, orchestration, and 
           prompt: " 检查这个仓库的最新状态 ",
           workerType: " reviewer ",
           taskType: " scheduled_job ",
+          notification: {
+            channelType: " feishu ",
+            accountId: " app-review ",
+            chatId: " oc_test_chat ",
+          },
         },
         {
           kind: "event_file",
@@ -63,6 +68,11 @@ test("normalizeProfile canonicalizes workers, memory policy, orchestration, and 
   assert.equal(profile.wakePolicy.schedules[0].workerType, "reviewer");
   assert.equal(profile.wakePolicy.schedules[0].taskType, "scheduled_job");
   assert.equal(profile.wakePolicy.schedules[0].workspaceRoot, "/tmp/repo");
+  assert.deepEqual(profile.wakePolicy.schedules[0].notification, {
+    channelType: "feishu",
+    accountId: "app-review",
+    chatId: "oc_test_chat",
+  });
   assert.equal(profile.channels[0].type, "feishu");
   assert.equal(profile.channels[0].defaultWorkspaceRoot, "/tmp/repo");
 });

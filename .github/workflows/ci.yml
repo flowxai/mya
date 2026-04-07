@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: connect/package-lock.json
+          cache-dependency-path: runtime/connect/package-lock.json
 
       - name: Install core dependencies
         run: bun install --frozen-lockfile
@@ -32,10 +32,10 @@ jobs:
         run: bun run build
 
       - name: Install connect dependencies
-        run: npm --prefix ./connect install
+        run: npm --prefix ./runtime/connect install
 
       - name: Check connect runtime
-        run: npm --prefix ./connect run check
+        run: npm --prefix ./runtime/connect run check
 
       - name: Test connect runtime
-        run: npm --prefix ./connect test
+        run: npm --prefix ./runtime/connect test

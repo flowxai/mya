@@ -164,6 +164,54 @@ test("RuntimeRegistry can notify runtimes scoped to a profile", async () => {
   assert.equal(results[0].profileId, "ops");
 });
 
+test("RuntimeRegistry can notify a specific runtime when an explicit route is provided", async () => {
+  const notifications = [];
+  const registry = new RuntimeRegistry();
+
+  await registry.reconcile([
+    {
+      key: "ops:wechat:wx-main",
+      profileId: "ops",
+      type: "wechat",
+      accountId: "wx-main",
+      runtime: {
+        async start() {},
+        async stop() {},
+        async notifyTaskCompletion(task) {
+          notifications.push(["wechat", task.taskId]);
+          return { delivered: true };
+        },
+      },
+    },
+    {
+      key: "ops:feishu:review-app",
+      profileId: "ops",
+      type: "feishu",
+      accountId: "review-app",
+      runtime: {
+        async start() {},
+        async stop() {},
+        async notifyTaskCompletion(task) {
+          notifications.push(["feishu", task.taskId]);
+          return { delivered: true };
+        },
+      },
+    },
+  ]);
+
+  const results = await registry.notifyProfile("ops", "notifyTaskCompletion", {
+    taskId: "task-456",
+    notification: {
+      channelType: "wechat",
+      accountId: "wx-main",
+    },
+  });
+
+  assert.deepEqual(notifications, [["wechat", "task-456"]]);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].type, "wechat");
+});
+
 test("HubRuntime supervises runtimes from the profile store lifecycle", async () => {
   const events = [];
   const profileStore = {

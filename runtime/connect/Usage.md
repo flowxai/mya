@@ -139,6 +139,12 @@ mya bots remove pm-bot
 
 `mya serve` 会自动读取这些 schedule，并在命中时派发后台任务。
 
+说明：
+
+- `prompt` 型规则会唤醒 bot 跑一轮后台 agent 任务
+- `command` 型规则会直接执行 shell 命令，不会再让 agent 自己决定怎么运行
+- 可选 `notification` 可以指定结果回推到哪个渠道或目标；不配时会回退到最近活跃会话
+
 ## 7. 事件唤醒
 
 如果你不想用 cron，也可以让 bot 读取外部事件文件。

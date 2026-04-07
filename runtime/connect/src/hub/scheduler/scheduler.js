@@ -49,6 +49,7 @@ class HubScheduler {
           command: normalizeText(rule.command),
           workerType: normalizeText(rule.workerType),
           taskType: normalizeText(rule.taskType) || "scheduled_job",
+          notification: isRecord(rule.notification) ? { ...rule.notification } : {},
           metadata: isRecord(rule.metadata) ? { ...rule.metadata } : {},
           taskId: task?.taskId || "",
           at: new Date(now).toISOString(),

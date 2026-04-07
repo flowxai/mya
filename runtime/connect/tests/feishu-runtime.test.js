@@ -365,3 +365,46 @@ test("FeishuRuntime notifyTaskCompletion sends the summary to the latest bound c
   assert.match(sent[0].text, /REPORT/);
   assert.match(sent[0].text, /日报已发送/);
 });
+
+test("FeishuRuntime notifyTaskCompletion honors an explicit binding key route", async () => {
+  const runtime = createRuntime({
+    appId: "cli_test",
+    profileContext: {
+      profileId: "mail-bot",
+    },
+  });
+  const workspaceRoot = "/tmp/mail-bot";
+  const sent = [];
+
+  runtime.sessionStore.setThreadIdForWorkspace("mail-bot:default:cli_test:user:ou_test_user_1", workspaceRoot, "session-1", {
+    workspaceId: "default",
+    accountId: "cli_test",
+    senderId: "user:ou_test_user_1",
+    chatId: "oc_test_chat_1",
+  });
+  runtime.sessionStore.setThreadIdForWorkspace("mail-bot:default:cli_test:user:ou_test_user_2", workspaceRoot, "session-2", {
+    workspaceId: "default",
+    accountId: "cli_test",
+    senderId: "user:ou_test_user_2",
+    chatId: "oc_test_chat_2",
+  });
+  runtime.sendTextToChat = async (chatId, text) => {
+    sent.push({ chatId, text });
+  };
+
+  const result = await runtime.notifyTaskCompletion({
+    profileId: "mail-bot",
+    trigger: "schedule",
+    workspaceRoot,
+    taskId: "task-322",
+    state: "completed",
+    notification: {
+      bindingKey: "mail-bot:default:cli_test:user:ou_test_user_1",
+    },
+    lastOutputSummary: "日报已发送",
+  });
+
+  assert.equal(result.delivered, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chatId, "oc_test_chat_1");
+});

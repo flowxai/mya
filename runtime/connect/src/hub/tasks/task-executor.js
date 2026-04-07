@@ -1,4 +1,7 @@
+const { spawn } = require("node:child_process");
 const { MyaStreamTurn } = require("../../infra/mya/stream-turn");
+const { buildProfileRunContext } = require("../agents/profile-run-context");
+const { resolveBotInstructionsPath } = require("../profiles/bot-instructions");
 
 class HubTaskExecutor {
   constructor(options = {}) {
@@ -12,23 +15,28 @@ class HubTaskExecutor {
     this.queue = [];
     this.activeRuns = new Map();
     this.pumpPromise = null;
+    this.stopping = false;
     const turnFactory = typeof options.turnFactory === "function"
       ? options.turnFactory
       : (config) => new MyaStreamTurn(config, {
         ...(typeof options.spawn === "function" ? { spawn: options.spawn } : {}),
         ...(typeof options.eventSink === "function" ? { eventSink: options.eventSink } : {}),
       });
+    const spawnCommand = typeof options.spawnCommand === "function"
+      ? options.spawnCommand
+      : spawnCommandProcess;
     this.runTask = typeof options.runTask === "function"
       ? options.runTask
       : buildDefaultRunTask({
         profileStore: this.profileStore,
         turnFactory,
+        spawnCommand,
       });
   }
 
   async dispatch(payload) {
     const task = this.ensureTask(payload);
-    return this.executeTask({
+    return this.executeTrackedTask({
       ...payload,
       taskId: task.taskId,
     });
@@ -36,6 +44,10 @@ class HubTaskExecutor {
 
   enqueue(payload) {
     const task = this.ensureTask(payload);
+    if (this.stopping) {
+      this.failTask(task.taskId, "task cancelled: service stopping");
+      return task;
+    }
     this.queue.push({
       ...payload,
       taskId: task.taskId,
@@ -51,7 +63,35 @@ class HubTaskExecutor {
     }
   }
 
-  async stop() {
+  async stop({ reason = "task cancelled: service stopping" } = {}) {
+    this.stopping = true;
+    const detail = normalizeText(reason) || "task cancelled: service stopping";
+
+    while (this.queue.length > 0) {
+      const queued = this.queue.shift();
+      if (!queued?.taskId) {
+        continue;
+      }
+      this.failTask(queued.taskId, detail);
+      this.appendAudit({
+        type: "task_cancel",
+        profileId: normalizeText(queued.profileId),
+        taskId: normalizeText(queued.taskId),
+        actor: "hub",
+        detail,
+      });
+    }
+
+    const cancels = Array.from(this.activeRuns.values()).map((run) => {
+      run.stopRequested = true;
+      if (typeof run.cancel !== "function") {
+        return Promise.resolve();
+      }
+      return Promise.resolve()
+        .then(() => run.cancel(detail))
+        .catch(() => {});
+    });
+    await Promise.allSettled(cancels);
     await this.waitForIdle();
   }
 
@@ -74,33 +114,60 @@ class HubTaskExecutor {
   }
 
   kickPump() {
-    if (this.pumpPromise) {
+    if (this.pumpPromise || this.stopping) {
       return;
     }
     this.pumpPromise = this.pumpQueue()
       .finally(() => {
         this.pumpPromise = null;
-        if (this.queue.length > 0) {
+        if (!this.stopping && this.queue.length > 0) {
           this.kickPump();
         }
       });
   }
 
   async pumpQueue() {
-    while (this.queue.length > 0 && this.activeRuns.size < this.concurrency) {
+    while (!this.stopping && this.queue.length > 0 && this.activeRuns.size < this.concurrency) {
       const payload = this.queue.shift();
-      const promise = this.executeTask(payload)
-        .catch(() => {})
-        .finally(() => {
-          this.activeRuns.delete(payload.taskId);
-        });
-      this.activeRuns.set(payload.taskId, promise);
+      void this.executeTrackedTask(payload).catch(() => {});
     }
 
-    await Promise.allSettled(Array.from(this.activeRuns.values()));
+    await Promise.allSettled(Array.from(this.activeRuns.values()).map((run) => run.promise));
   }
 
-  async executeTask(payload = {}) {
+  async executeTrackedTask(payload = {}) {
+    const taskId = normalizeText(payload.taskId);
+    const run = {
+      taskId,
+      cancel: null,
+      promise: null,
+      stopRequested: false,
+    };
+    const controls = {
+      setStopHandler: (handler) => {
+        if (typeof handler !== "function") {
+          return;
+        }
+        run.cancel = handler;
+        if (run.stopRequested) {
+          void Promise.resolve()
+            .then(() => handler("task cancelled: service stopping"))
+            .catch(() => {});
+        }
+      },
+      isStopping: () => this.stopping === true,
+    };
+
+    const promise = this.executeTask(payload, controls)
+      .finally(() => {
+        this.activeRuns.delete(taskId);
+      });
+    run.promise = promise;
+    this.activeRuns.set(taskId, run);
+    return await promise;
+  }
+
+  async executeTask(payload = {}, controls = {}) {
     const taskId = normalizeText(payload.taskId);
     const profileId = normalizeText(payload.profileId);
     const trigger = normalizeText(payload.trigger) || "manual";
@@ -130,7 +197,7 @@ class HubTaskExecutor {
     });
 
     try {
-      const result = await this.runTask(runInput);
+      const result = await this.runTask(runInput, controls);
       const completed = this.taskRegistry.completeRun(taskId, {
         resumableSessionId: normalizeText(result?.sessionId || result?.resumableSessionId),
         lastOutputSummary: normalizeText(result?.result || result?.lastOutputSummary),
@@ -167,6 +234,15 @@ class HubTaskExecutor {
     }
   }
 
+  failTask(taskId, detail) {
+    if (!this.taskRegistry || typeof this.taskRegistry.failRun !== "function") {
+      return null;
+    }
+    return this.taskRegistry.failRun(taskId, {
+      lastOutputSummary: normalizeText(detail) || "task failed",
+    });
+  }
+
   async notifyTaskLifecycle(state, task, payload) {
     if (!this.completionNotifier || !task) {
       return null;
@@ -179,6 +255,7 @@ class HubTaskExecutor {
           ...task,
           command: normalizeText(payload?.command),
           prompt: normalizeText(payload?.prompt),
+          notification: cloneRecord(payload?.notification),
           metadata: isRecord(payload?.metadata) ? { ...payload.metadata } : {},
         },
         payload: { ...payload },
@@ -209,11 +286,33 @@ function buildDefaultRunTask(options = {}) {
   const turnFactory = typeof options.turnFactory === "function"
     ? options.turnFactory
     : (config) => new MyaStreamTurn(config);
+  const spawnCommand = typeof options.spawnCommand === "function"
+    ? options.spawnCommand
+    : spawnCommandProcess;
 
-  return async function runTask(input = {}) {
+  return async function runTask(input = {}, controls = {}) {
     const profile = isRecord(input.profile)
       ? input.profile
       : resolveProfile(profileStore, input.profileId);
+    const profileRunContext = buildProfileRunContext({
+      profile,
+      requestedType: input.requestedWorkerType,
+      inheritedMemoryNamespace: input.inheritedMemoryNamespace,
+      workspaceRoot: input.workspaceRoot,
+    });
+
+    if (normalizeText(input.command)) {
+      const commandRun = await spawnCommand(buildCommandInvocation(input, profileRunContext));
+      const handle = normalizeCommandHandle(commandRun);
+      controls.setStopHandler?.((reason) => (
+        typeof handle.stop === "function"
+          ? handle.stop(reason)
+          : undefined
+      ));
+      const commandResult = await handle.promise;
+      return normalizeCommandTaskResult(input.command, commandResult);
+    }
+
     const turn = turnFactory({
       myaCommand: normalizeText(input.myaCommand) || "mya",
       workspaceRoot: normalizeText(input.workspaceRoot),
@@ -226,6 +325,7 @@ function buildDefaultRunTask(options = {}) {
       requestedWorkerType: normalizeText(input.requestedWorkerType),
       inheritedMemoryNamespace: normalizeText(input.inheritedMemoryNamespace),
     });
+    controls.setStopHandler?.(() => turn.stop());
 
     return turn.run(input.prompt);
   };
@@ -235,29 +335,6 @@ function buildHubTaskPrompt(payload = {}) {
   const explicitPrompt = normalizeText(payload.prompt);
   if (explicitPrompt) {
     return explicitPrompt;
-  }
-
-  const explicitCommand = normalizeText(payload.command);
-  if (explicitCommand) {
-    const profileId = normalizeText(payload.profileId) || "(unknown-profile)";
-    const trigger = normalizeText(payload.trigger) || "manual";
-    const workspaceRoot = normalizeText(payload.workspaceRoot) || "(unknown-workspace)";
-    const metadata = isRecord(payload.metadata) ? payload.metadata : {};
-    const metadataSuffix = Object.keys(metadata).length > 0
-      ? `metadata=${JSON.stringify(metadata)}`
-      : "";
-
-    return [
-      `profile=${profileId}`,
-      `trigger=${trigger}`,
-      `workspace=${workspaceRoot}`,
-      metadataSuffix,
-      `请在当前工作区执行这个命令：${explicitCommand}`,
-      "执行后输出一份详细中文汇报，不要只给一句总结。",
-      "至少包含：执行状态、执行了什么、关键结果/统计数字、需要关注的事项、异常或风险、建议的下一步。",
-      ...buildTaskSpecificReportingGuidance({ command: explicitCommand, metadata }),
-      "如果适合，请用分段或表格样式组织内容；如果失败，明确失败原因和下一步建议。",
-    ].filter(Boolean).join("\n");
   }
 
   const profileId = normalizeText(payload.profileId) || "(unknown-profile)";
@@ -306,6 +383,160 @@ function looksLikeMailTask(command = "", metadata = {}) {
   });
 }
 
+function buildCommandInvocation(input, profileRunContext) {
+  const command = normalizeText(input.command);
+  return {
+    command,
+    cwd: normalizeText(input.workspaceRoot),
+    env: {
+      ...process.env,
+      ...(input.baseUrl || profileRunContext?.baseUrl
+        ? { ANTHROPIC_BASE_URL: input.baseUrl || profileRunContext.baseUrl }
+        : {}),
+      ...(input.apiKey || profileRunContext?.apiKey
+        ? { ANTHROPIC_API_KEY: input.apiKey || profileRunContext.apiKey }
+        : {}),
+      ...(input.authToken || profileRunContext?.authToken
+        ? { ANTHROPIC_AUTH_TOKEN: input.authToken || profileRunContext.authToken }
+        : {}),
+      ...(input.model || profileRunContext?.model
+        ? { ANTHROPIC_MODEL: input.model || profileRunContext.model }
+        : {}),
+      ...(normalizeText(input.profileId) ? { MYA_ACTIVE_BOT_ID: normalizeText(input.profileId) } : {}),
+      ...(normalizeText(input.profileId) ? { MYA_ACTIVE_BOT_PROFILE_ID: normalizeText(input.profileId) } : {}),
+      ...(normalizeText(input.profileId) ? { MYA_HUB_PROFILE_ID: normalizeText(input.profileId) } : {}),
+      ...(normalizeText(input.profileId)
+        ? { MYA_ACTIVE_BOT_INSTRUCTIONS_PATH: resolveBotInstructionsPath(normalizeText(input.profileId)) }
+        : {}),
+      ...(profileRunContext?.memoryNamespace
+        ? { MYA_HUB_MEMORY_NAMESPACE: profileRunContext.memoryNamespace }
+        : {}),
+    },
+  };
+}
+
+function normalizeCommandHandle(result) {
+  if (result && typeof result === "object" && result.promise && typeof result.promise.then === "function") {
+    return {
+      promise: result.promise,
+      stop: typeof result.stop === "function" ? result.stop.bind(result) : null,
+    };
+  }
+
+  return {
+    promise: Promise.resolve(result),
+    stop: null,
+  };
+}
+
+function normalizeCommandTaskResult(command, result = {}) {
+  const exitCode = Number.isInteger(result?.exitCode) ? result.exitCode : 0;
+  const signal = normalizeText(result?.signal);
+  const stdout = normalizeCommandOutput(result?.stdout);
+  const stderr = normalizeCommandOutput(result?.stderr);
+  const durationMs = Number.isFinite(result?.durationMs) ? Math.max(0, Math.round(result.durationMs)) : 0;
+  const report = buildCommandTaskReport({
+    command,
+    exitCode,
+    signal,
+    stdout,
+    stderr,
+    durationMs,
+  });
+
+  if (exitCode !== 0 || signal) {
+    throw new Error(report);
+  }
+
+  return {
+    sessionId: "",
+    result: report,
+  };
+}
+
+function buildCommandTaskReport({ command, exitCode, signal = "", stdout = "", stderr = "", durationMs = 0 }) {
+  const normalizedCommand = normalizeText(command) || "(unknown-command)";
+  const success = exitCode === 0 && !normalizeText(signal);
+  const lines = [
+    "[mya command task report]",
+    "",
+    `STATUS     ${success ? "SUCCESS" : "FAILED"}`,
+    `EXIT CODE  ${exitCode}`,
+    `SIGNAL     ${normalizeText(signal) || "none"}`,
+    `DURATION   ${durationMs > 0 ? `${durationMs}ms` : "unknown"}`,
+    `COMMAND    ${normalizedCommand}`,
+    "",
+    "STDOUT",
+    stdout || "(empty)",
+    "",
+    "STDERR",
+    stderr || "(empty)",
+  ];
+  return lines.join("\n");
+}
+
+function spawnCommandProcess(invocation = {}) {
+  const command = normalizeText(invocation.command);
+  if (!command) {
+    throw new Error("task command is required");
+  }
+
+  const child = spawn(command, {
+    cwd: normalizeText(invocation.cwd) || process.cwd(),
+    env: isRecord(invocation.env) ? invocation.env : process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: true,
+  });
+  const startedAt = Date.now();
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+
+  const promise = new Promise((resolve, reject) => {
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", reject);
+    child.on("close", (exitCode, signal) => {
+      settled = true;
+      resolve({
+        exitCode: Number.isInteger(exitCode) ? exitCode : 0,
+        signal: normalizeText(signal),
+        stdout,
+        stderr,
+        durationMs: Date.now() - startedAt,
+      });
+    });
+  });
+
+  return {
+    promise,
+    async stop() {
+      if (settled) {
+        return { stopped: true, forced: false };
+      }
+
+      const didTerminate = child.kill("SIGTERM");
+      if (!didTerminate) {
+        return { stopped: false, forced: false };
+      }
+      if (await settlesWithin(promise, 500)) {
+        return { stopped: true, forced: false };
+      }
+
+      const didKill = child.kill("SIGKILL");
+      if (!didKill) {
+        return { stopped: false, forced: true };
+      }
+      await settlesWithin(promise, 500);
+      return { stopped: settled, forced: true };
+    },
+  };
+}
+
 function resolveProfile(profileStore, profileId) {
   if (!profileStore || typeof profileStore.get !== "function") {
     return null;
@@ -323,6 +554,22 @@ function normalizeText(value) {
 
 function isRecord(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneRecord(value) {
+  return isRecord(value) ? { ...value } : {};
+}
+
+function normalizeCommandOutput(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+async function settlesWithin(promise, timeoutMs) {
+  const settled = await Promise.race([
+    Promise.resolve(promise).then(() => true, () => true),
+    sleep(timeoutMs).then(() => false),
+  ]);
+  return settled === true;
 }
 
 function sleep(ms) {

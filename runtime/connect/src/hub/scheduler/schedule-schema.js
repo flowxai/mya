@@ -24,6 +24,7 @@ function normalizeScheduleRule(rule) {
     command: normalizeText(rule.command),
     workerType: normalizeText(rule.workerType),
     taskType: normalizeText(rule.taskType),
+    notification: normalizeNotification(rule.notification),
     metadata: isRecord(rule.metadata) ? { ...rule.metadata } : {},
     enabled: rule.enabled !== false,
   };
@@ -100,6 +101,30 @@ function matchesCronField(field, value, min, max) {
 function normalizeEventFile(value) {
   const normalized = normalizeText(value);
   return normalized ? path.resolve(normalized) : "";
+}
+
+function normalizeNotification(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const normalized = {};
+  for (const key of [
+    "runtimeKey",
+    "channelType",
+    "accountId",
+    "bindingKey",
+    "workspaceRoot",
+    "userId",
+    "contextToken",
+    "chatId",
+  ]) {
+    const text = normalizeText(value[key]);
+    if (text) {
+      normalized[key] = text;
+    }
+  }
+  return normalized;
 }
 
 function normalizeText(value) {

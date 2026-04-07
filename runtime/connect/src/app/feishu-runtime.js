@@ -993,7 +993,7 @@ class FeishuRuntime {
   }
 
   async notifyTaskCompletion(task = {}) {
-    const target = this.resolveNotificationTarget(task.workspaceRoot);
+    const target = this.resolveNotificationTarget(task);
     if (!target) {
       return {
         delivered: false,
@@ -1011,7 +1011,25 @@ class FeishuRuntime {
     };
   }
 
-  resolveNotificationTarget(workspaceRoot) {
+  resolveNotificationTarget(task = {}) {
+    const notification = isFeishuRecord(task.notification) ? task.notification : {};
+    const directChatId = normalizeFeishuRuntimeText(notification.chatId);
+    if (directChatId) {
+      return { chatId: directChatId };
+    }
+
+    const explicitBindingKey = normalizeFeishuRuntimeText(notification.bindingKey);
+    if (explicitBindingKey) {
+      const target = this.resolveNotificationTargetFromBinding(
+        explicitBindingKey,
+        notification.workspaceRoot || task.workspaceRoot,
+      );
+      if (target) {
+        return target;
+      }
+    }
+
+    const workspaceRoot = task.workspaceRoot;
     const accountId = normalizeFeishuRuntimeText(this.config.appId);
     const match = this.sessionStore.findLatestBinding({
       profileId: this.runtimeContext.profileId,
@@ -1026,6 +1044,32 @@ class FeishuRuntime {
       || extractChatIdFromSender(match.binding.senderId);
     if (!chatId) {
       return null;
+    }
+
+    return { chatId };
+  }
+
+  resolveNotificationTargetFromBinding(bindingKey, workspaceRoot) {
+    const binding = this.sessionStore.getBinding(bindingKey);
+    if (!binding) {
+      return null;
+    }
+
+    const chatId = normalizeFeishuRuntimeText(binding.chatId)
+      || extractChatIdFromSender(binding.senderId);
+    if (!chatId) {
+      return null;
+    }
+
+    const normalizedWorkspaceRoot = normalizeWorkspacePath(workspaceRoot);
+    if (normalizedWorkspaceRoot) {
+      const knownWorkspaceRoots = this.sessionStore.listWorkspaceRoots(bindingKey);
+      if (
+        knownWorkspaceRoots.length > 0
+        && !knownWorkspaceRoots.includes(normalizedWorkspaceRoot)
+      ) {
+        return null;
+      }
     }
 
     return { chatId };

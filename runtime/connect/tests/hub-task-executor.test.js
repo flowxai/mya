@@ -8,6 +8,7 @@ const { HubTaskRegistry } = require("../src/hub/tasks/task-registry");
 const {
   HubTaskExecutor,
   buildHubTaskPrompt,
+  buildDefaultRunTask,
 } = require("../src/hub/tasks/task-executor");
 
 test("HubTaskExecutor dispatches a background task and persists the completed state", async () => {
@@ -79,6 +80,48 @@ test("HubTaskExecutor notifies channel runtimes after task completion", async ()
   assert.equal(notifications[0].task.lastOutputSummary, "日报已发送");
 });
 
+test("HubTaskExecutor.stop cancels active tasks and drains queued work", async () => {
+  const filePath = path.join(os.tmpdir(), `mya-connect-hub-executor-${Date.now()}-${Math.random()}.json`);
+  const taskRegistry = new HubTaskRegistry({ filePath });
+  const executor = new HubTaskExecutor({
+    taskRegistry,
+    concurrency: 1,
+    async runTask(input, controls = {}) {
+      return await new Promise((resolve, reject) => {
+        controls.setStopHandler?.(() => {
+          reject(new Error(`task cancelled: ${input.taskId}`));
+        });
+      });
+    },
+  });
+
+  const running = executor.enqueue({
+    profileId: "ops-bot",
+    trigger: "schedule",
+    workspaceRoot: "/workspace/ops",
+    prompt: "执行值班巡检，并汇总异常。",
+  });
+  const queued = executor.enqueue({
+    profileId: "ops-bot",
+    trigger: "schedule",
+    workspaceRoot: "/workspace/ops",
+    prompt: "执行第二个后台任务。",
+  });
+
+  await sleep(25);
+
+  const stopResult = await Promise.race([
+    executor.stop(),
+    sleep(200).then(() => "__timeout__"),
+  ]);
+
+  assert.notEqual(stopResult, "__timeout__");
+  assert.equal(taskRegistry.get(running.taskId)?.state, "failed");
+  assert.match(taskRegistry.get(running.taskId)?.lastOutputSummary || "", /cancelled|stopping/i);
+  assert.equal(taskRegistry.get(queued.taskId)?.state, "failed");
+  assert.match(taskRegistry.get(queued.taskId)?.lastOutputSummary || "", /cancelled|stopping/i);
+});
+
 test("HubTaskExecutor marks tasks as failed when the task runner throws", async () => {
   const filePath = path.join(os.tmpdir(), `mya-connect-hub-executor-${Date.now()}-${Math.random()}.json`);
   const taskRegistry = new HubTaskRegistry({ filePath });
@@ -121,7 +164,7 @@ test("buildHubTaskPrompt creates a default instruction when the payload omits pr
   assert.match(prompt, /nightly-check/);
 });
 
-test("buildHubTaskPrompt turns command-based schedules into an executable instruction", () => {
+test("buildHubTaskPrompt does not turn command-based schedules into agent instructions", () => {
   const prompt = buildHubTaskPrompt({
     profileId: "mail-bot",
     trigger: "schedule",
@@ -131,16 +174,52 @@ test("buildHubTaskPrompt turns command-based schedules into an executable instru
 
   assert.match(prompt, /mail-bot/);
   assert.match(prompt, /\/workspace\/mail/);
-  assert.match(prompt, /python3 on_wake\.py/);
-  assert.match(prompt, /执行这个命令/);
-  assert.match(prompt, /详细中文汇报/);
-  assert.match(prompt, /关键结果\/统计数字/);
-  assert.match(prompt, /邮件类任务时/);
-  assert.match(prompt, /逐封说明/);
-  assert.match(prompt, /发件人/);
-  assert.match(prompt, /主题/);
-  assert.match(prompt, /时间/);
-  assert.match(prompt, /需要采取的动作/);
+  assert.match(prompt, /请处理这次后台任务/);
+  assert.doesNotMatch(prompt, /执行这个命令/);
+  assert.doesNotMatch(prompt, /python3 on_wake\.py/);
+});
+
+test("buildDefaultRunTask executes command schedules directly in the shell", async () => {
+  const shellInvocations = [];
+  let stopHandler = null;
+  const runTask = buildDefaultRunTask({
+    turnFactory() {
+      throw new Error("turnFactory should not be used for command schedules");
+    },
+    async spawnCommand(input) {
+      shellInvocations.push(input);
+      return {
+        exitCode: 0,
+        stdout: "邮件扫描完成\n共 3 封重点邮件",
+        stderr: "",
+      };
+    },
+  });
+
+  const result = await runTask({
+    profileId: "mail-bot",
+    workspaceRoot: "/workspace/mail",
+    command: "cd /workspace/mail && python3 on_wake.py",
+    model: "kimi-k2.5",
+    baseUrl: "https://api.example.com",
+    apiKey: "sk-test",
+  }, {
+    setStopHandler(handler) {
+      stopHandler = handler;
+    },
+  });
+
+  assert.equal(shellInvocations.length, 1);
+  assert.equal(shellInvocations[0].cwd, "/workspace/mail");
+  assert.equal(shellInvocations[0].command, "cd /workspace/mail && python3 on_wake.py");
+  assert.equal(shellInvocations[0].env.ANTHROPIC_BASE_URL, "https://api.example.com");
+  assert.equal(shellInvocations[0].env.ANTHROPIC_API_KEY, "sk-test");
+  assert.equal(shellInvocations[0].env.ANTHROPIC_MODEL, "kimi-k2.5");
+  assert.equal(typeof stopHandler, "function");
+  assert.match(result.result, /\[mya command task report\]/);
+  assert.match(result.result, /STATUS\s+SUCCESS/);
+  assert.match(result.result, /COMMAND\s+cd \/workspace\/mail && python3 on_wake\.py/);
+  assert.match(result.result, /邮件扫描完成/);
 });
 
 test("HubTaskExecutor can drive a real stream-json turn and persist resumable session state", async () => {
@@ -202,4 +281,8 @@ function createFakeChild() {
 
 function toNdjson(value) {
   return `${JSON.stringify(value)}\n`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

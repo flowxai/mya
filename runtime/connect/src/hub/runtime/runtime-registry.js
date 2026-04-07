@@ -108,6 +108,9 @@ class RuntimeRegistry {
       if (String(entry.profileId || "").trim() !== normalizedProfileId) {
         continue;
       }
+      if (!matchesNotificationRoute(entry, payload?.notification)) {
+        continue;
+      }
 
       const handler = entry.runtime?.[normalizedEventName];
       if (typeof handler !== "function") {
@@ -152,6 +155,33 @@ class RuntimeRegistry {
       throw error;
     }
   }
+}
+
+function matchesNotificationRoute(entry, notification) {
+  if (!notification || typeof notification !== "object" || Array.isArray(notification)) {
+    return true;
+  }
+
+  const runtimeKey = normalizeText(notification.runtimeKey);
+  if (runtimeKey && normalizeText(entry?.key) !== runtimeKey) {
+    return false;
+  }
+
+  const channelType = normalizeText(notification.channelType).toLowerCase();
+  if (channelType && normalizeText(entry?.type).toLowerCase() !== channelType) {
+    return false;
+  }
+
+  const accountId = normalizeText(notification.accountId);
+  if (accountId && normalizeText(entry?.accountId) !== accountId) {
+    return false;
+  }
+
+  return true;
+}
+
+function normalizeText(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 module.exports = {

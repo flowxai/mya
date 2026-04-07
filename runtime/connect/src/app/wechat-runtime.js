@@ -1130,7 +1130,7 @@ class WechatRuntime {
   }
 
   async notifyTaskCompletion(task = {}) {
-    const target = this.resolveNotificationTarget(task.workspaceRoot);
+    const target = this.resolveNotificationTarget(task);
     if (!target) {
       return {
         delivered: false,
@@ -1149,7 +1149,33 @@ class WechatRuntime {
     };
   }
 
-  resolveNotificationTarget(workspaceRoot) {
+  resolveNotificationTarget(task = {}) {
+    const notification = isWechatRecord(task.notification) ? task.notification : {};
+    const directUserId = normalizeWechatRuntimeText(notification.userId);
+    if (directUserId) {
+      const contextToken = normalizeWechatRuntimeText(
+        notification.contextToken || this.contextTokenByUserId.get(directUserId),
+      );
+      if (contextToken) {
+        return {
+          userId: directUserId,
+          contextToken,
+        };
+      }
+    }
+
+    const explicitBindingKey = normalizeWechatRuntimeText(notification.bindingKey);
+    if (explicitBindingKey) {
+      const target = this.resolveNotificationTargetFromBinding(
+        explicitBindingKey,
+        notification.workspaceRoot || task.workspaceRoot,
+      );
+      if (target) {
+        return target;
+      }
+    }
+
+    const workspaceRoot = task.workspaceRoot;
     const accountId = normalizeWechatRuntimeText(this.account?.accountId || this.config.accountId);
     const match = this.sessionStore.findLatestBinding({
       profileId: this.runtimeContext.profileId,
@@ -1161,9 +1187,42 @@ class WechatRuntime {
     }
 
     const userId = normalizeWechatRuntimeText(match.binding.senderId);
-    const contextToken = normalizeWechatRuntimeText(match.binding.contextToken || this.contextTokenByUserId.get(userId));
+    const contextToken = normalizeWechatRuntimeText(
+      match.binding.contextToken || this.contextTokenByUserId.get(userId),
+    );
     if (!userId || !contextToken) {
       return null;
+    }
+
+    return {
+      userId,
+      contextToken,
+    };
+  }
+
+  resolveNotificationTargetFromBinding(bindingKey, workspaceRoot) {
+    const binding = this.sessionStore.getBinding(bindingKey);
+    if (!binding) {
+      return null;
+    }
+
+    const userId = normalizeWechatRuntimeText(binding.senderId);
+    const contextToken = normalizeWechatRuntimeText(
+      binding.contextToken || this.contextTokenByUserId.get(userId),
+    );
+    if (!userId || !contextToken) {
+      return null;
+    }
+
+    const normalizedWorkspaceRoot = normalizeWorkspacePath(workspaceRoot);
+    if (normalizedWorkspaceRoot) {
+      const knownWorkspaceRoots = this.sessionStore.listWorkspaceRoots(bindingKey);
+      if (
+        knownWorkspaceRoots.length > 0
+        && !knownWorkspaceRoots.includes(normalizedWorkspaceRoot)
+      ) {
+        return null;
+      }
     }
 
     return {

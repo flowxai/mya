@@ -456,3 +456,54 @@ test("WechatRuntime notifyTaskCompletion sends the summary to the latest bound u
   assert.match(sent[0].text, /REPORT/);
   assert.match(sent[0].text, /日报已发送/);
 });
+
+test("WechatRuntime notifyTaskCompletion honors an explicit binding key route", async () => {
+  const runtime = createRuntime({
+    accountId: "wx-main",
+    profileContext: {
+      profileId: "mail-bot",
+    },
+  });
+  const workspaceRoot = "/tmp/mail-bot";
+  const sent = [];
+
+  runtime.account = {
+    accountId: "wx-main",
+    token: "token",
+    baseUrl: "https://example.com",
+  };
+  runtime.contextTokenByUserId.set("user-1", "ctx-1");
+  runtime.contextTokenByUserId.set("user-2", "ctx-2");
+  runtime.sessionStore.setThreadIdForWorkspace("mail-bot:default:wx-main:user-1", workspaceRoot, "session-1", {
+    workspaceId: "default",
+    accountId: "wx-main",
+    senderId: "user-1",
+    contextToken: "ctx-1",
+  });
+  runtime.sessionStore.setThreadIdForWorkspace("mail-bot:default:wx-main:user-2", workspaceRoot, "session-2", {
+    workspaceId: "default",
+    accountId: "wx-main",
+    senderId: "user-2",
+    contextToken: "ctx-2",
+  });
+  runtime.sendReplyToUser = async (userId, text, contextToken) => {
+    sent.push({ userId, text, contextToken });
+  };
+
+  const result = await runtime.notifyTaskCompletion({
+    profileId: "mail-bot",
+    trigger: "schedule",
+    workspaceRoot,
+    taskId: "task-790",
+    state: "completed",
+    notification: {
+      bindingKey: "mail-bot:default:wx-main:user-1",
+    },
+    lastOutputSummary: "日报已发送",
+  });
+
+  assert.equal(result.delivered, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].userId, "user-1");
+  assert.equal(sent[0].contextToken, "ctx-1");
+});

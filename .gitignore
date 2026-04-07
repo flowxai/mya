@@ -1,7 +1,7 @@
 node_modules/
-connect/node_modules/
+runtime/connect/node_modules/
 dist/
 release/
 cli
 cli-dev
-connect/.env
+runtime/connect/.env

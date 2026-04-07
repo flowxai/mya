@@ -234,9 +234,10 @@ bot 可以通过 `wakePolicy` 自动醒来。
 2. 在 `wakePolicy.schedules` 中新增一条规则
 3. 常用字段：
    `cron`、`prompt` 或 `command`、`workspaceRoot`、`taskType`、`metadata`
-4. cron 按本地时间匹配
-5. 保存后执行 `mya serve restart`
-6. 任务完成后，结果会主动推送回这个 bot 最近活跃的微信或飞书会话
+4. `prompt` 表示唤醒 bot 跑一轮后台 agent 任务；`command` 表示直接执行 shell 命令
+5. 可选 `notification` 用来指定结果回推到哪个渠道或目标；不配时，会回退到这个 bot 最近活跃的微信或飞书会话
+6. cron 按本地时间匹配
+7. 保存后执行 `mya serve restart`
 
 示例：
 
@@ -251,6 +252,9 @@ bot 可以通过 `wakePolicy` 自动醒来。
         "command": "cd /absolute/workspace/path/mail_service && python3 on_wake.py",
         "workspaceRoot": "/absolute/workspace/path",
         "taskType": "scheduled_job",
+        "notification": {
+          "channelType": "wechat"
+        },
         "metadata": {
           "source": "mail-report"
         }
@@ -259,6 +263,13 @@ bot 可以通过 `wakePolicy` 自动醒来。
   }
 }
 ```
+
+说明：
+
+- `command` 型任务会直接执行这条 shell 命令，并把 `stdout / stderr / exit code` 组织成详细报告
+- `prompt` 型任务则会启动一轮 bot 自己的后台 agent turn
+- `notification.channelType` 可以先粗粒度指定 `wechat` 或 `feishu`
+- 如果你需要更精确的路由，也可以在 `notification` 里继续写 `runtimeKey`、`accountId`、`bindingKey`、`chatId`、`userId`
 
 如果这是邮件类定时任务，建议把汇报标准固定成：
 
