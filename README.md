@@ -1,11 +1,34 @@
 # mya
 
+> **Forked from [paoloanzn/free-code](https://github.com/paoloanzn/free-code)**，   
+> 本仓库在它的基础上增加了多 bot 体系、微信/飞书渠道和定时任务系统。
+
 `mya` 是一个本地 AI 编码助手。  
 你可以直接在终端里用它写代码、读代码、跑命令，也可以把同一个 bot 带到微信和飞书里持续工作。
 
-如果一句话概括：
+一句话概括：
 
-**`mya` = 终端里的本地代码代理 + 可持续运行的 bot 系统。**
+**`mya` = 一个去掉限制的 Claude Code 上加一套常驻 bot 系统。**
+
+## 这个项目都做了什么
+
+继承自 [paoloanzn/free-code](https://github.com/paoloanzn/free-code) 的特性：
+
+- **遥测数据已移除**：不会向任何后端上报使用数据
+- **安全提示护栏已移除**：`system-prompt` 里的硬性限制被剥掉
+- **实验性功能全量解锁**：官方分支里默认关闭的 experimental feature 都是开着的
+
+`mya` 在上面自己加的部分：
+
+- **多 bot 体系**（`mya bots add / remove / list`）——每个 bot 有自己的 `profile.json`、`BOT.md`、工作区、模型配置、权限模式
+- **微信渠道**（`mya wechat login`）——QR 登录、会话路由、附件接收、`/mya approve` 等 in-chat 控制命令
+- **飞书渠道**（`mya feishu login`）——每个 bot 可绑不同飞书应用，支持群内 @ 消息和 thread 回复
+- **`mya serve`**——后台常驻服务，统一托管所有渠道 bot、写 heartbeat、跑调度器
+- **定时任务 / 唤醒策略**（`wakePolicy.schedules`）——cron 到点触发 agent turn 或 shell command，结果主动推回微信/飞书
+- **后台任务和恢复**——task registry 支持 `mya serve tasks list|resume`
+- **权限请求转发**——agent 发的 `can_use_tool` 请求会通过渠道发给你，你在微信/飞书里 `/mya approve` 或 `/mya reject`
+
+想**只要 bot 渠道**那一层、不 fork 本体，可以直接用独立项目 [`myaconnect`](https://github.com/flowxai/myaconnect)——它的代码和这里 `runtime/connect/` 同源，但只 spawn 官方 `claude` CLI，不包含上游的任何编码代理源码。
 
 ## 快速开始
 
@@ -498,3 +521,39 @@ bun run build
 npm --prefix ./runtime/connect run check
 npm --prefix ./runtime/connect test
 ```
+
+## 致谢
+
+本项目的代码组成：
+
+| 部分 | 来源 | 说明 |
+|---|---|---|
+| `src/`、`scripts/`、`bin/mya` 等编码代理本体 | fork 自 [paoloanzn/free-code](https://github.com/paoloanzn/free-code)，后者 fork 自 [ultraworkers/claw-code](https://github.com/ultraworkers/claw-code) | 上游无明确 license，详见下方 LICENSE 和免责声明 |
+| `runtime/connect/` 渠道运行时、hub、scheduler、task 系统 | 本仓库作者原创 | MIT 许可，见 `runtime/connect/LICENSE` |
+| `runtime/connect/src/infra/mya/` spawn 适配层 | 本仓库作者原创 | 同上 |
+
+如果你觉得 bot 渠道这层对你有用，star / PR 更欢迎提到独立仓库 [flowxai/myaconnect](https://github.com/flowxai/myaconnect)——那里是干净的上层项目，只依赖官方 `claude` CLI。
+
+## 免责声明
+
+本仓库是一个**社区项目**，请在使用前了解以下事实：
+
+1. **基于公开的 free-code**：编码代理本体 fork 自 [paoloanzn/free-code](https://github.com/paoloanzn/free-code)。free-code 仓库本身**没有 LICENSE 文件**，且其父仓库正在处理所有权问题；free-code 的可再分发状态在法律上是**不明确的**。任何下游使用都继承这种不确定性。
+2. **删除了遥测和安全护栏**：本项目继承了 free-code 对上游的修改，包括移除遥测和剥离 system-prompt 护栏。这意味着：
+   - 部分模型自我约束行为会因护栏被剥离而与官方分支不同
+   - 你应当为 bot 的任何输出和行为承担**完全责任**
+3. **无担保**：本项目按"**原样**"提供，不附带任何明示或默示的担保，包括但不限于适销性、适用性和非侵权担保。**使用造成的任何后果由你自己承担**。
+4. **不要用于生产环境**：请不要把本项目用于任何对可用性、安全性、合规性敏感的生产系统。
+5. **尊重第三方的服务条款**：通过本项目访问任何模型 API、接入任何微信/飞书账号，都应当遵守相应服务的 TOS 和当地法律。你对因此产生的一切后果负责。
+
+如果你是任何相关代码的权利持有人并认为本仓库侵权，请通过 GitHub 的 DMCA 流程联系，或在本仓库提 issue，我会立即配合。
+
+## License
+
+见 [LICENSE](./LICENSE)。
+
+简要：
+
+- `runtime/connect/` 下的渠道运行时代码由仓库作者持有，采用 **MIT**（原文件见 `runtime/connect/LICENSE`）
+- 仓库其余部分作为 free-code 的 derivative，**上游无明确 license**，对应的部分按 "source-available, all rights reserved to upstream authors" 对待
+- 本仓库作者对自己的 derivative 工作**不主张任何额外权利**，但也**无法授予你上游代码的再分发权**——因为作者本身也不持有上游代码的原始版权
