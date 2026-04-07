@@ -72,7 +72,7 @@ test("HubScheduler matches cron rules in local time and forwards command-based s
     },
   ]);
 
-  await scheduler.tick(new Date("2026-04-04T11:35:00+08:00"));
+  await scheduler.tick(new Date(2026, 3, 4, 11, 35, 0));
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].profileId, "mail-bot");
