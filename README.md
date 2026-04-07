@@ -28,8 +28,6 @@
 - **后台任务和恢复**——task registry 支持 `mya serve tasks list|resume`
 - **权限请求转发**——agent 发的 `can_use_tool` 请求会通过渠道发给你，你在微信/飞书里 `/mya approve` 或 `/mya reject`
 
-想**只要 bot 渠道**那一层、不 fork 本体，可以直接用独立项目 [`myaconnect`](https://github.com/flowxai/myaconnect)——它的代码和这里 `runtime/connect/` 同源，但只 spawn 官方 `claude` CLI，不包含上游的任何编码代理源码。
-
 ## 快速开始
 
 ### 1. 安装
@@ -531,8 +529,6 @@ npm --prefix ./runtime/connect test
 | `src/`、`scripts/`、`bin/mya` 等编码代理本体 | fork 自 [paoloanzn/free-code](https://github.com/paoloanzn/free-code)，后者 fork 自 [ultraworkers/claw-code](https://github.com/ultraworkers/claw-code) | 上游无明确 license，详见下方 LICENSE 和免责声明 |
 | `runtime/connect/` 渠道运行时、hub、scheduler、task 系统 | 本仓库作者原创 | MIT 许可，见 `runtime/connect/LICENSE` |
 | `runtime/connect/src/infra/mya/` spawn 适配层 | 本仓库作者原创 | 同上 |
-
-如果你觉得 bot 渠道这层对你有用，star / PR 更欢迎提到独立仓库 [flowxai/myaconnect](https://github.com/flowxai/myaconnect)——那里是干净的上层项目，只依赖官方 `claude` CLI。
 
 ## 免责声明
 
