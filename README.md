@@ -2,6 +2,8 @@
 
 > **Forked from [paoloanzn/free-code](https://github.com/paoloanzn/free-code)**，   
 > 本仓库在它的基础上增加了多 bot 体系、微信/飞书渠道和定时任务系统。
+>
+> 在 [linux.do](https://linux.do/) 社区首发，欢迎到讨论帖交流。
 
 `mya` 是一个本地 AI 编码助手。  
 你可以直接在终端里用它写代码、读代码、跑命令，也可以把同一个 bot 带到微信和飞书里持续工作。
