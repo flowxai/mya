@@ -253,8 +253,12 @@ export function getAnthropicApiKeyWithSource(
     ? undefined
     : process.env.ANTHROPIC_API_KEY
 
-  // Always check for direct environment variable when the user ran claude --print.
-  // This is useful for CI, etc.
+  // Trust ANTHROPIC_API_KEY outright when preferThirdPartyAuthentication() is
+  // true. That returns true for non-interactive sessions (claude --print, CI)
+  // and also for interactive sessions where ANTHROPIC_BASE_URL is explicitly
+  // set — see bootstrap/state.ts. The second condition lets users configure a
+  // third-party gateway entirely through ~/.mya/settings.json env without
+  // needing to run /config to approve the key.
   if (preferThirdPartyAuthentication() && apiKeyEnv) {
     return {
       key: apiKeyEnv,

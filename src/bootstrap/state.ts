@@ -1233,7 +1233,25 @@ export function setAllowedSettingSources(sources: SettingSource[]): void {
 
 export function preferThirdPartyAuthentication(): boolean {
   // IDE extension should behave as 1P for authentication reasons.
-  return getIsNonInteractiveSession() && STATE.clientType !== 'claude-vscode'
+  if (STATE.clientType === 'claude-vscode') return false
+
+  // Non-interactive sessions (headless, --print, CI) always prefer 3P.
+  if (getIsNonInteractiveSession()) return true
+
+  // Interactive sessions: treat an explicitly-configured ANTHROPIC_BASE_URL as
+  // opt-in consent to talk to a third-party gateway. applySafeConfigEnvironmentVariables()
+  // copies settings.json env into process.env before this function is reached,
+  // so a base URL set in ~/.mya/settings.json (or ~/.claude/settings.json) is
+  // visible here. Trusting it here lets interactive users configure their own
+  // gateway via settings WITHOUT having to ALSO run /config and approve their
+  // ANTHROPIC_API_KEY — a previously-required second step that produced the
+  // "Not logged in · Please run /login" dead-end when users set BASE_URL but
+  // hadn't approved the key. Shell-exported ANTHROPIC_BASE_URL works the same
+  // way. The approve gate still runs for users who have NOT set a base URL —
+  // i.e., people whose key could silently land at api.anthropic.com.
+  if (process.env.ANTHROPIC_BASE_URL) return true
+
+  return false
 }
 
 export function setInlinePlugins(plugins: Array<string>): void {
