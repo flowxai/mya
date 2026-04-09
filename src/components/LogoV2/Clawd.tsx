@@ -229,9 +229,16 @@ export function Clawd(t0) {
   } else {
     t11 = $[22];
   }
+  // Only render the primary row (t6). t10 and t11 are leftovers from the
+  // original 3-row Clawd layout (r2: █████ body, r3: ▘▘ ▝▝ feet). The current
+  // POSES put the entire mascot — head, body, AND feet — inside r1E as a
+  // multi-line string, so those legacy rows leak out as a stray "small black
+  // blob" and a phantom feet pair below the mascot. t10 and t11 are still
+  // assigned above so the react-compiler $[*] memo-cache indices do not shift,
+  // but they are no longer mounted into the rendered column.
   let t12;
   if ($[23] !== t10 || $[24] !== t6) {
-    t12 = <Box flexDirection="column">{t6}{t10}{t11}</Box>;
+    t12 = <Box flexDirection="column">{t6}</Box>;
     $[23] = t10;
     $[24] = t6;
     $[25] = t12;
