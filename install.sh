@@ -119,8 +119,18 @@ check_prerequisites() {
 }
 
 detect_source_dir() {
-  local script_path=""
-  script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # When the installer is piped (curl ... | bash) BASH_SOURCE[0] is unset,
+  # which under `set -u` prints a warning AND makes dirname "" → "." → cd .
+  # → the caller's cwd, causing a false positive whenever the caller happens
+  # to be inside any directory that looks like a mya source checkout. Use a
+  # default-empty expansion and an existence check to bail out in that case
+  # so piped installs always take the release path.
+  local candidate="${BASH_SOURCE[0]:-}"
+  if [[ -z "$candidate" || ! -f "$candidate" ]]; then
+    return
+  fi
+  local script_path
+  script_path="$(cd "$(dirname "$candidate")" && pwd)"
   if [[ -f "${script_path}/package.json" && -f "${script_path}/scripts/build.ts" ]]; then
     SCRIPT_SOURCE_DIR="$script_path"
   fi
