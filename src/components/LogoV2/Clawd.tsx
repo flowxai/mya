@@ -1,7 +1,6 @@
 import { c as _c } from "react/compiler-runtime";
 import * as React from 'react';
 import { Box, Text } from '../../ink.js';
-import { env } from '../../utils/env.js';
 export type ClawdPose = 'default' | 'arms-up' // both arms raised (used during jump)
 | 'look-left' // both pupils shifted left
 | 'look-right'; // both pupils shifted right
@@ -150,17 +149,12 @@ export function Clawd(t0) {
     pose: t2
   } = t1;
   const pose = t2 === undefined ? "default" : t2;
-  if (env.terminal === "Apple_Terminal") {
-    let t3;
-    if ($[2] !== pose) {
-      t3 = <AppleTerminalClawd pose={pose} />;
-      $[2] = pose;
-      $[3] = t3;
-    } else {
-      t3 = $[3];
-    }
-    return t3;
-  }
+  // (Previously: branched to AppleTerminalClawd when env.terminal === "Apple_Terminal".
+  // Removed so the full POSES art renders in every terminal — Apple Terminal.app
+  // users were seeing the tiny legacy mascot instead of the intended big art
+  // despite installing the latest release. AppleTerminalClawd and APPLE_EYES
+  // are intentionally left in this file so the surrounding react-compiler
+  // memo-cache indices ($[*]) continue to match their original slot layout.)
   const p = POSES[pose];
   let t3;
   if ($[4] !== p.r1L) {
