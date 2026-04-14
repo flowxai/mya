@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { downloadIncomingWeixinAttachments } = require("../src/infra/weixin/media-receive");
+const { buildMyaAttachmentInput } = require("../src/infra/attachments/inbox");
 
 function encryptForWechat(buf, key) {
   const cipher = crypto.createCipheriv("aes-128-ecb", key, null);
@@ -141,4 +142,48 @@ test("downloadIncomingWeixinAttachments also decrypts aes_key encoded as base64-
 
   const stored = await fs.readFile(path.join(tempDir, saved[0].relativePath));
   assert.deepEqual(stored, plaintext);
+});
+
+test("downloadIncomingWeixinAttachments infers image mimeType when the CDN omits content-type", async (t) => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mya-connect-wechat-image-no-type-"));
+  const key = crypto.randomBytes(16);
+  const plaintext = Buffer.from("wechat-image-without-content-type");
+  const ciphertext = encryptForWechat(plaintext, key);
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => new Response(new Uint8Array(ciphertext), {
+    status: 200,
+  });
+
+  t.after(async () => {
+    global.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const saved = await downloadIncomingWeixinAttachments({
+    workspaceRoot: tempDir,
+    profileId: "ops-bot",
+    conversationKey: "wx-user-no-type",
+    messageId: "msg-image-no-type",
+    cdnBaseUrl: "https://novac2c.cdn.weixin.qq.com/c2c",
+    attachments: [
+      {
+        kind: "image",
+        media: {
+          encryptQueryParam: "enc-image-no-type",
+          aesKey: key.toString("base64"),
+        },
+      },
+    ],
+  });
+
+  assert.equal(saved[0].mimeType, "image/jpeg");
+
+  const content = buildMyaAttachmentInput({
+    userText: "",
+    attachments: saved,
+  });
+  assert.ok(Array.isArray(content));
+  assert.equal(content[1].type, "image");
+  assert.equal(content[1].source.media_type, "image/jpeg");
 });

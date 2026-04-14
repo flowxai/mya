@@ -32,6 +32,13 @@ test("buildDefaultBotInstructions describes schedule and heartbeat capabilities"
   assert.match(instructions, /发件人/);
   assert.match(instructions, /主题/);
   assert.match(instructions, /需要采取的动作/);
+  assert.match(instructions, /图片输入能力/);
+  assert.match(instructions, /不要只根据路径或文件名猜内容/);
+  assert.match(instructions, /文件发送限制/);
+  assert.match(instructions, /\/mya send <相对文件路径>/);
+  assert.match(instructions, /<mya-send-image path="screenshots\/result\.jpg" \/>/);
+  assert.match(instructions, /<mya-send-file path="exports\/report\.pdf" \/>/);
+  assert.match(instructions, /svg\/pdf\/zip\/docx/);
 });
 
 test("ensureBotInstructionsFile backfills runtime capabilities into an existing BOT.md", () => {
@@ -75,6 +82,10 @@ test("ensureBotInstructionsFile backfills runtime capabilities into an existing 
   assert.match(updated, /^## Runtime Capabilities$/m);
   assert.match(updated, /当前已配置定时任务：1/);
   assert.match(updated, /schedule 示例/);
+  assert.match(updated, /图片输入能力/);
+  assert.match(updated, /文件发送限制/);
+  assert.match(updated, /<mya-send-image path="screenshots\/result\.jpg" \/>/);
+  assert.match(updated, /<mya-send-file path="exports\/report\.pdf" \/>/);
   assert.match(updated, /Existing note\./);
 
   fs.rmSync(profilesRoot, { recursive: true, force: true });

@@ -105,7 +105,7 @@ async function uploadMediaToWeixin({ filePath, toUserId, opts, cdnBaseUrl, media
 function buildMediaRef(uploaded) {
   return {
     encrypt_query_param: uploaded.downloadEncryptedQueryParam,
-    aes_key: Buffer.from(uploaded.aeskey, "hex").toString("base64"),
+    aes_key: Buffer.from(uploaded.aeskey, "utf8").toString("base64"),
     encrypt_type: 1,
   };
 }
@@ -211,5 +211,6 @@ async function sendWeixinMediaFile({ filePath, to, contextToken, baseUrl, token,
 }
 
 module.exports = {
+  buildMediaRef,
   sendWeixinMediaFile,
 };

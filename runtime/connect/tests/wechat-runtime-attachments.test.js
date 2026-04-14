@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const fs = require("node:fs/promises");
 const os = require("os");
 const path = require("path");
 
@@ -402,6 +403,163 @@ test("WechatRuntime recreates the session after an unexpected stream exit on res
   assert.equal(calls[1].resumeSessionId, "");
   assert.match(calls[1].sessionId, /^[0-9a-f-]{36}$/);
   assert.equal(calls[1].persistedThreadId, "");
+});
+
+test("WechatRuntime prepareTurnInput inlines workspace image paths mentioned in user text", async (t) => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mya-connect-wechat-inline-image-"));
+  const imageDir = path.join(workspaceRoot, "screens");
+  const imagePath = path.join(imageDir, "latest.jpg");
+  const runtime = createRuntime({
+    defaultWorkspaceRoot: workspaceRoot,
+    workspaceAllowlist: [workspaceRoot],
+    profileContext: {
+      profileId: "review-bot",
+    },
+  });
+
+  await fs.mkdir(imageDir, { recursive: true });
+  await fs.writeFile(imagePath, Buffer.from("fake-inline-image"));
+
+  t.after(async () => {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  runtime.downloadIncomingAttachments = async () => [];
+
+  const turnInput = await runtime.prepareTurnInput({
+    workspaceRoot,
+    normalized: {
+      text: `${imagePath}\n看看这个图里写了什么`,
+      attachments: [],
+    },
+  });
+
+  assert.equal(turnInput.savedAttachments.length, 1);
+  assert.equal(turnInput.savedAttachments[0].relativePath, "screens/latest.jpg");
+  assert.equal(turnInput.savedAttachments[0].mimeType, "image/jpeg");
+  assert.ok(Array.isArray(turnInput.content));
+  assert.equal(turnInput.content[1].type, "image");
+  assert.equal(turnInput.content[1].source.media_type, "image/jpeg");
+});
+
+test("WechatRuntime handleNormalized sends assistant-requested workspace images without leaking control tags", async (t) => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mya-connect-wechat-assistant-send-"));
+  const imageDir = path.join(workspaceRoot, "screens");
+  const imagePath = path.join(imageDir, "result.jpg");
+  const runtime = createRuntime({
+    defaultWorkspaceRoot: workspaceRoot,
+    workspaceAllowlist: [workspaceRoot],
+    profileContext: {
+      profileId: "review-bot",
+    },
+  });
+  const replies = [];
+  const sent = [];
+
+  await fs.mkdir(imageDir, { recursive: true });
+  await fs.writeFile(imagePath, Buffer.from("fake-outbound-image"));
+
+  t.after(async () => {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  runtime.resolveWorkspaceContext = async () => ({ bindingKey: "binding", workspaceRoot });
+  runtime.runConversation = async () => [
+    "图我直接发回微信。",
+    '<mya-send-image path="screens/result.jpg" />',
+  ].join("\n");
+  runtime.startTypingForUser = async () => {};
+  runtime.stopTypingForUser = async () => {};
+  runtime.sendReplyToNormalized = async (_normalized, text) => {
+    replies.push(text);
+  };
+  runtime.sendWorkspaceMediaFile = async ({ filePath, normalized }) => {
+    sent.push({ filePath, normalized });
+  };
+
+  await runtime.handleNormalized({
+    provider: "weixin",
+    profileId: "review-bot",
+    workspaceId: "default",
+    accountId: "wx-account",
+    chatId: "wx-user-1",
+    threadKey: "wx-user-1",
+    senderId: "wx-user-1",
+    messageId: "message-1",
+    text: "把刚才那张图发给我",
+    rawText: "把刚才那张图发给我",
+    command: "",
+    contextToken: "ctx-1",
+    attachments: [],
+    hasBotTrigger: true,
+    isGroupChat: false,
+    receivedAt: new Date().toISOString(),
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].filePath, imagePath);
+  assert.equal(sent[0].normalized.senderId, "wx-user-1");
+  assert.deepEqual(replies, ["图我直接发回微信。"]);
+});
+
+test("WechatRuntime handleNormalized sends assistant-requested workspace files such as svg", async (t) => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mya-connect-wechat-assistant-send-file-"));
+  const assetDir = path.join(workspaceRoot, "assets");
+  const svgPath = path.join(assetDir, "diagram.svg");
+  const runtime = createRuntime({
+    defaultWorkspaceRoot: workspaceRoot,
+    workspaceAllowlist: [workspaceRoot],
+    profileContext: {
+      profileId: "review-bot",
+    },
+  });
+  const replies = [];
+  const sent = [];
+
+  await fs.mkdir(assetDir, { recursive: true });
+  await fs.writeFile(svgPath, '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+
+  t.after(async () => {
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  runtime.resolveWorkspaceContext = async () => ({ bindingKey: "binding", workspaceRoot });
+  runtime.runConversation = async () => [
+    "文件我直接发回微信。",
+    '<mya-send-file path="assets/diagram.svg" />',
+  ].join("\n");
+  runtime.startTypingForUser = async () => {};
+  runtime.stopTypingForUser = async () => {};
+  runtime.sendReplyToNormalized = async (_normalized, text) => {
+    replies.push(text);
+  };
+  runtime.sendWorkspaceMediaFile = async ({ filePath, normalized }) => {
+    sent.push({ filePath, normalized });
+  };
+
+  await runtime.handleNormalized({
+    provider: "weixin",
+    profileId: "review-bot",
+    workspaceId: "default",
+    accountId: "wx-account",
+    chatId: "wx-user-1",
+    threadKey: "wx-user-1",
+    senderId: "wx-user-1",
+    messageId: "message-2",
+    text: "把那个 svg 发给我",
+    rawText: "把那个 svg 发给我",
+    command: "",
+    contextToken: "ctx-1",
+    attachments: [],
+    hasBotTrigger: true,
+    isGroupChat: false,
+    receivedAt: new Date().toISOString(),
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].filePath, svgPath);
+  assert.equal(sent[0].normalized.senderId, "wx-user-1");
+  assert.deepEqual(replies, ["文件我直接发回微信。"]);
 });
 
 test("WechatRuntime stop confirms the running turn is actually stopped", async () => {

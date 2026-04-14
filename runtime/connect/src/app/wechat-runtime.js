@@ -25,6 +25,7 @@ const {
   markdownToPlainText,
   normalizeWeixinIncomingMessage,
 } = require("../infra/weixin/message-utils");
+const { getMimeFromFilename } = require("../infra/weixin/media-mime");
 const {
   extractBindPath,
   extractEffortValue,
@@ -57,6 +58,8 @@ const BACKOFF_DELAY_MS = 30_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const TYPING_KEEPALIVE_MS = 5_000;
 const ALLOWED_EFFORTS = new Set(["low", "medium", "high", "max"]);
+const ASSISTANT_SEND_IMAGE_TAG_PATTERN = /<mya-send-image\s+path=(?:"([^"]+)"|'([^']+)')\s*\/>/gi;
+const ASSISTANT_SEND_FILE_TAG_PATTERN = /<mya-send-file\s+path=(?:"([^"]+)"|'([^']+)')\s*\/>/gi;
 
 class WechatRuntime {
   constructor(config) {
@@ -256,9 +259,11 @@ class WechatRuntime {
           workspaceRoot: workspaceContext.workspaceRoot,
           normalized,
         });
-        if (reply) {
-          await this.sendReplyToNormalized(normalized, reply);
-        }
+        await this.deliverAssistantReply({
+          normalized,
+          workspaceRoot: workspaceContext.workspaceRoot,
+          reply,
+        });
       } finally {
         await this.stopTypingForUser(normalized.senderId);
       }
@@ -668,13 +673,9 @@ class WechatRuntime {
       return;
     }
 
-    await sendWeixinMediaFile({
+    await this.sendWorkspaceMediaFile({
+      normalized,
       filePath: resolvedPath,
-      to: normalized.senderId,
-      contextToken: normalized.contextToken || this.contextTokenByUserId.get(normalized.senderId) || "",
-      baseUrl: this.account.baseUrl,
-      token: this.account.token,
-      cdnBaseUrl: this.config.cdnBaseUrl,
     });
   }
 
@@ -780,7 +781,9 @@ class WechatRuntime {
   }
 
   async prepareTurnInput({ workspaceRoot, normalized }) {
-    const savedAttachments = await this.downloadIncomingAttachments({ workspaceRoot, normalized });
+    const incomingAttachments = await this.downloadIncomingAttachments({ workspaceRoot, normalized });
+    const referencedImageAttachments = await this.loadReferencedImageAttachments({ workspaceRoot, normalized });
+    const savedAttachments = mergeWechatAttachments(incomingAttachments, referencedImageAttachments);
     const text = buildWechatTurnInputText(normalized, savedAttachments);
     return {
       text,
@@ -790,6 +793,56 @@ class WechatRuntime {
       }) || text,
       savedAttachments,
     };
+  }
+
+  async loadReferencedImageAttachments({ workspaceRoot, normalized }) {
+    const userText = normalizeWechatRuntimeText(normalized?.text);
+    if (!workspaceRoot || !userText) {
+      return [];
+    }
+
+    const referencedPaths = extractReferencedImagePaths(userText);
+    if (!referencedPaths.length) {
+      return [];
+    }
+
+    const attachments = [];
+    const seen = new Set();
+    for (const referencedPath of referencedPaths) {
+      const absolutePath = resolveReferencedImagePath(workspaceRoot, referencedPath);
+      if (!absolutePath || seen.has(absolutePath) || !pathMatchesWorkspaceRoot(absolutePath, workspaceRoot)) {
+        continue;
+      }
+
+      let stats;
+      try {
+        stats = await fs.promises.stat(absolutePath);
+      } catch {
+        continue;
+      }
+      if (!stats.isFile()) {
+        continue;
+      }
+
+      const mimeType = getMimeFromFilename(absolutePath);
+      if (!mimeType.startsWith("image/")) {
+        continue;
+      }
+
+      attachments.push({
+        kind: "image",
+        fileName: path.basename(absolutePath),
+        localPath: absolutePath,
+        absolutePath,
+        relativePath: path.relative(workspaceRoot, absolutePath).split(path.sep).join("/"),
+        mimeType,
+        contentType: mimeType,
+        data: await fs.promises.readFile(absolutePath),
+      });
+      seen.add(absolutePath);
+    }
+
+    return attachments;
   }
 
   async downloadIncomingAttachments({ workspaceRoot, normalized }) {
@@ -1246,6 +1299,92 @@ class WechatRuntime {
     return candidatePath;
   }
 
+  async sendWorkspaceMediaFile({ normalized, filePath }) {
+    await sendWeixinMediaFile({
+      filePath,
+      to: normalized.senderId,
+      contextToken: normalized.contextToken || this.contextTokenByUserId.get(normalized.senderId) || "",
+      baseUrl: this.account.baseUrl,
+      token: this.account.token,
+      cdnBaseUrl: this.config.cdnBaseUrl,
+    });
+  }
+
+  async deliverAssistantReply({ normalized, workspaceRoot, reply }) {
+    const delivery = normalizeAssistantDeliveryPlan(reply);
+    const failures = [];
+
+    for (const action of delivery.actions) {
+      try {
+        if (action.type === "send_image") {
+          await this.sendAssistantWorkspaceFile({
+            normalized,
+            workspaceRoot,
+            requestedPath: action.path,
+            requireImage: true,
+          });
+        } else if (action.type === "send_file") {
+          await this.sendAssistantWorkspaceFile({
+            normalized,
+            workspaceRoot,
+            requestedPath: action.path,
+            requireImage: false,
+          });
+        } else {
+          continue;
+        }
+      } catch (error) {
+        failures.push(
+          `${action.type === "send_file" ? "文件" : "图片"}发送失败: ${action.path}${error?.message ? ` (${error.message})` : ""}`
+        );
+      }
+    }
+
+    const textParts = [];
+    if (delivery.reply) {
+      textParts.push(delivery.reply);
+    }
+    if (failures.length) {
+      textParts.push(...failures);
+    }
+    if (textParts.length) {
+      await this.sendReplyToNormalized(normalized, textParts.join("\n\n"));
+    }
+  }
+
+  async sendAssistantWorkspaceFile({ normalized, workspaceRoot, requestedPath, requireImage }) {
+    const resolvedPath = resolveReferencedImagePath(workspaceRoot, requestedPath);
+    const normalizedPath = normalizeWorkspacePath(resolvedPath);
+    const normalizedWorkspaceRoot = normalizeWorkspacePath(workspaceRoot);
+    if (!normalizedPath || !normalizedWorkspaceRoot || !pathMatchesWorkspaceRoot(normalizedPath, normalizedWorkspaceRoot)) {
+      throw new Error(`只允许发送当前项目目录内的${requireImage ? "图片" : "文件"}。`);
+    }
+
+    let stats = null;
+    try {
+      stats = await fs.promises.stat(normalizedPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        throw new Error(`${requireImage ? "图片" : "文件"}不存在。`);
+      }
+      throw error;
+    }
+
+    if (!stats.isFile()) {
+      throw new Error(`只能发送${requireImage ? "图片文件" : "文件"}，不能发送目录。`);
+    }
+
+    const mimeType = getMimeFromFilename(normalizedPath);
+    if (requireImage && !mimeType.startsWith("image/")) {
+      throw new Error("assistant 主动发回微信时目前只支持图片。");
+    }
+
+    await this.sendWorkspaceMediaFile({
+      normalized,
+      filePath: normalizedPath,
+    });
+  }
+
   async startTypingForUser(normalized) {
     if (!this.config.enableTyping) {
       return;
@@ -1407,6 +1546,131 @@ function buildWechatTurnInputText(normalized, savedAttachments) {
 }
 
 module.exports.buildWechatTurnInputText = buildWechatTurnInputText;
+
+function extractReferencedImagePaths(text) {
+  const matches = String(text || "").match(/(?:\.{1,2}\/|\/)[^\s"'`]+?\.(?:png|jpe?g|gif|webp|bmp)\b/gi);
+  return Array.isArray(matches) ? matches : [];
+}
+
+function resolveReferencedImagePath(workspaceRoot, referencedPath) {
+  const candidate = normalizeWechatRuntimeText(referencedPath);
+  if (!candidate) {
+    return "";
+  }
+
+  return path.isAbsolute(candidate)
+    ? path.resolve(candidate)
+    : path.resolve(workspaceRoot, candidate);
+}
+
+function mergeWechatAttachments(...groups) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const group of groups) {
+    for (const attachment of group || []) {
+      const key = normalizeWechatRuntimeText(attachment?.absolutePath || attachment?.localPath || attachment?.relativePath);
+      if (key && seen.has(key)) {
+        continue;
+      }
+      if (key) {
+        seen.add(key);
+      }
+      merged.push(attachment);
+    }
+  }
+
+  return merged;
+}
+
+function normalizeAssistantDeliveryPlan(value) {
+  if (isWechatRecord(value)) {
+    const parsedReply = parseAssistantSendImageTags(normalizeWechatRuntimeText(value.reply));
+    return {
+      reply: parsedReply.reply,
+      actions: dedupeAssistantDeliveryActions([
+        ...normalizeAssistantActions(value.actions),
+        ...parsedReply.actions,
+      ]),
+    };
+  }
+
+  return parseAssistantSendImageTags(normalizeWechatRuntimeText(value));
+}
+
+function normalizeAssistantActions(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((action) => {
+      if (!isWechatRecord(action)) {
+        return null;
+      }
+      const type = normalizeWechatRuntimeText(action.type);
+      const targetPath = normalizeWechatRuntimeText(action.path);
+      if ((type !== "send_image" && type !== "send_file") || !targetPath) {
+        return null;
+      }
+      return {
+        type,
+        path: targetPath,
+      };
+    })
+    .filter(Boolean);
+}
+
+function dedupeAssistantDeliveryActions(actions) {
+  const result = [];
+  const seen = new Set();
+
+  for (const action of actions) {
+    const key = `${normalizeWechatRuntimeText(action?.type)}::${normalizeWechatRuntimeText(action?.path)}`;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(action);
+  }
+
+  return result;
+}
+
+function parseAssistantSendImageTags(text) {
+  const actions = [];
+  let reply = String(text || "").replace(ASSISTANT_SEND_IMAGE_TAG_PATTERN, (_full, doubleQuoted, singleQuoted) => {
+    const targetPath = normalizeWechatRuntimeText(doubleQuoted || singleQuoted);
+    if (targetPath) {
+      actions.push({
+        type: "send_image",
+        path: targetPath,
+      });
+    }
+    return "";
+  });
+  reply = reply.replace(ASSISTANT_SEND_FILE_TAG_PATTERN, (_full, doubleQuoted, singleQuoted) => {
+    const targetPath = normalizeWechatRuntimeText(doubleQuoted || singleQuoted);
+    if (targetPath) {
+      actions.push({
+        type: "send_file",
+        path: targetPath,
+      });
+    }
+    return "";
+  });
+
+  return {
+    reply: normalizeAssistantReplyText(reply),
+    actions,
+  };
+}
+
+function normalizeAssistantReplyText(text) {
+  return String(text || "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 async function fallbackInterruptStop(turn) {
   if (!turn || typeof turn.interrupt !== "function") {

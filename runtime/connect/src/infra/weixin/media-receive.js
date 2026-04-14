@@ -3,7 +3,7 @@ const fs = require("fs/promises");
 const path = require("path");
 
 const { resolveInboxDirectory } = require("../attachments/inbox");
-const { getExtensionFromMime } = require("./media-mime");
+const { getExtensionFromMime, getMimeFromFilename } = require("./media-mime");
 
 function ensureTrailingSlash(url) {
   return url.endsWith("/") ? url : `${url}/`;
@@ -93,6 +93,7 @@ async function downloadIncomingWeixinAttachments({
       index,
       messageId,
     });
+    const resolvedContentType = contentType || getMimeFromFilename(fileName);
     const absolutePath = path.join(inboxDirectory, fileName);
     await fs.writeFile(absolutePath, plaintext);
 
@@ -102,8 +103,8 @@ async function downloadIncomingWeixinAttachments({
       localPath: absolutePath,
       absolutePath,
       relativePath: path.relative(workspaceRoot, absolutePath).split(path.sep).join("/"),
-      mimeType: contentType,
-      contentType,
+      mimeType: resolvedContentType,
+      contentType: resolvedContentType,
       data: plaintext,
     });
   }
