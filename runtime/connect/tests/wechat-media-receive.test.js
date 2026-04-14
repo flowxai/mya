@@ -102,3 +102,43 @@ test("downloadIncomingWeixinAttachments keeps file names for inbound files", asy
   const stored = await fs.readFile(path.join(tempDir, saved[0].relativePath));
   assert.deepEqual(stored, plaintext);
 });
+
+test("downloadIncomingWeixinAttachments also decrypts aes_key encoded as base64-wrapped hex", async (t) => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mya-connect-wechat-image-hex-"));
+  const key = crypto.randomBytes(16);
+  const plaintext = Buffer.from("wechat-image-from-real-payload");
+  const ciphertext = encryptForWechat(plaintext, key);
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => new Response(new Uint8Array(ciphertext), {
+    status: 200,
+    headers: {
+      "content-type": "image/jpeg",
+    },
+  });
+
+  t.after(async () => {
+    global.fetch = originalFetch;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const saved = await downloadIncomingWeixinAttachments({
+    workspaceRoot: tempDir,
+    profileId: "ops-bot",
+    conversationKey: "wx-user-hex",
+    messageId: "msg-image-hex",
+    cdnBaseUrl: "https://novac2c.cdn.weixin.qq.com/c2c",
+    attachments: [
+      {
+        kind: "image",
+        media: {
+          encryptQueryParam: "enc-image-hex",
+          aesKey: Buffer.from(key.toString("hex"), "utf8").toString("base64"),
+        },
+      },
+    ],
+  });
+
+  const stored = await fs.readFile(path.join(tempDir, saved[0].relativePath));
+  assert.deepEqual(stored, plaintext);
+});

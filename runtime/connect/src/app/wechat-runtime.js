@@ -1310,6 +1310,7 @@ function shouldRecreateSession(error) {
     message.includes("no conversation found with session id")
     || message.includes("failed to resume session")
     || message.includes("no conversation found")
+    || message.includes("mya stream turn exited unexpectedly")
   );
 }
 

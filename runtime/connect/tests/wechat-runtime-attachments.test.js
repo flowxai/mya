@@ -356,6 +356,54 @@ test("WechatRuntime sends a progress update for long-running tools", async () =>
   assert.match(replies[0], /progress: Bash \(12s\)/);
 });
 
+test("WechatRuntime recreates the session after an unexpected stream exit on resume", async () => {
+  const runtime = createRuntime();
+  const bindingKey = "binding";
+  const workspaceRoot = "/tmp/repo";
+  const normalized = {
+    text: "你好",
+  };
+  const calls = [];
+
+  runtime.sessionStore.setThreadIdForWorkspace(bindingKey, workspaceRoot, "session-123", {
+    workspaceId: "default",
+    accountId: "wx-account",
+    senderId: "wx-user-1",
+  });
+  runtime.prepareTurnInput = async () => ({
+    text: "你好",
+    content: "你好",
+  });
+  runtime.executeTurnRun = async (input) => {
+    calls.push({
+      sessionId: input.sessionId,
+      resumeSessionId: input.resumeSessionId,
+      persistedThreadId: runtime.sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot),
+    });
+    if (calls.length === 1) {
+      throw new Error("mya failed: mya stream turn exited unexpectedly");
+    }
+    return { reply: "ok" };
+  };
+
+  const reply = await runtime.runConversation({
+    bindingKey,
+    workspaceRoot,
+    normalized,
+  });
+
+  assert.equal(reply, "ok");
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], {
+    sessionId: "",
+    resumeSessionId: "session-123",
+    persistedThreadId: "session-123",
+  });
+  assert.equal(calls[1].resumeSessionId, "");
+  assert.match(calls[1].sessionId, /^[0-9a-f-]{36}$/);
+  assert.equal(calls[1].persistedThreadId, "");
+});
+
 test("WechatRuntime stop confirms the running turn is actually stopped", async () => {
   const runtime = createRuntime({
     defaultWorkspaceRoot: "/tmp/repo",

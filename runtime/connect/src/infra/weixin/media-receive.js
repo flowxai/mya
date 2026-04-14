@@ -25,6 +25,11 @@ function decodeAesKey(value) {
     if (base64.length === 16) {
       return base64;
     }
+
+    const decodedHex = base64.toString("utf8").trim();
+    if (/^[0-9a-f]{32}$/i.test(decodedHex)) {
+      return Buffer.from(decodedHex, "hex");
+    }
   } catch {}
 
   if (/^[0-9a-f]{32}$/i.test(normalized)) {
