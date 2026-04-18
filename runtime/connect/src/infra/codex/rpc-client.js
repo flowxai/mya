@@ -8,7 +8,7 @@ const WINDOWS_EXECUTABLE_SUFFIX_RE = /\.(cmd|exe|bat)$/i;
 const CODEX_CLIENT_INFO = {
   name: "codex_wechat_agent",
   title: "Codex Wechat Agent",
-  version: "0.1.3",
+  version: "0.1.8",
 };
 
 class CodexRpcClient {
